@@ -1,0 +1,8 @@
+
+
+
+
+
+
+liv:
+	cd src && $(MAKE)

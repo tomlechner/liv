@@ -7,7 +7,7 @@
  * \section main  Laxkit Image Viewer
  *
  * This is a simple, minimal image viewer written with the Laxkit.
- * You can currently view anything that Imlib2 can view.
+ * You can currently view anything that Laxkit can view.
  *
  * Learn more about the Laxkit at https://github.com/Laidout/laxkit.
  *
@@ -23,8 +23,10 @@
  *                     [all files]
  *
  *
+ *  freedesktop thumbnail generation
+ *  file move, updating thumbnail location?
+ *  finish implement thumb_location: memory|freedesktop|localdir
  *
- *  laxkit needs more image loaders, imlib fails on large images
  *  autohide mouse after some number of seconds
  *  force rotate
  *  image sets:
@@ -49,8 +51,6 @@
  *  batch rename
  *  mark by adding tags "mark1" "mark2", then select mark from tag cloud
  *  thumbnail view, browse mode, bubble zoom?
- *  freedesktop thumbnail generation
- *  file move, updating thumbnail location?
  *  load new files
  *  more than one limbo groups:
  *     images
@@ -62,7 +62,6 @@
  *    tiffinfo for tiffs
  *  control window geometry with command line option, including full screen
  *  figure out a decent maximize scheme
- *  option to set imlib cache or auto do 2/3 available memory
  *  flickr upload?
  *  fix timer bug in Laxkit, timer fires, but doesn't refresh
  *  intelligent large image refreshing, only paint what is necessary
@@ -78,13 +77,12 @@
 
 #include <lax/anxapp.h>
 #include <lax/strmanip.h>
-#include <lax/laximlib.h>
 #include <lax/attributes.h>
 #include <lax/laxoptions.h>
 #include <lax/language.h>
 
 #include "livwindow.h"
-#include "laxtuio.h"
+//#include "laxtuio.h"
 
 
 
@@ -129,7 +127,7 @@ int main(int argc,char **argv)
 	options.Add("reverse",   'R', 0, "Reverse the order (after any sorting)");
 	options.Add("collection",'C', 1, "Load in a collection of images");
 	options.Add("slide-show",'D', 1, "Display as slideshow, with delay that many seconds",           0, "1.5");
-	options.Add("tuio",      'T', 0, "Set up a tuio listener on port 3333");
+	//options.Add("tuio",      'T', 0, "Set up a tuio listener on port 3333");
 	options.Add("memthumb",  'M', 0, "Do not generate ~/.thumbnails/*, use in memory previews instead");
 	options.Add("localthumb",'L', 0, "Do not generate ~/.thumbnails/*, use (filedir)/.thumbnails/*");
 	options.Add("verbose",   'V', 0, "Say what a click will do as the mouse moves around");
@@ -137,11 +135,8 @@ int main(int argc,char **argv)
 	options.Add("help",      'h', 0, "Print out this help and exit");
 
 	anXApp app;
-	app.maxtimeout=1./30 *1000000;
+	app.SetMaxTimeout(1./30 *1000000);
 	app.init(argc,argv);
-	InitLaxImlib(); //***still necessary? it shouldn't be if it is!!
-	imlib_set_cache_size(1000*1024*1024);//in bytes
-	//DBG cerr << "Imlib cache: "<<imlib_get_cache_size()<<endl;
 
 	////--------------------mem test
 	//pid_t pid=getpid();
@@ -157,9 +152,9 @@ int main(int argc,char **argv)
 	int onetoone=LIVZOOM_Scale_To_Screen;
 	char *sort=NULL;
 	int reverse=0;
-	int tuio=0;
+	//int tuio=0;
 	int verbose=0;
-	int usememorythumbs=0;
+	int usememorythumbs = LivFlags::LIV_Freedesktop_Thumbs;
 	int recursive=0;
 	int slidedelay=0; //default, in milliseconds
 	int bgr=0, bgg=0, bgb=0; //default background color
@@ -182,9 +177,9 @@ int main(int argc,char **argv)
 			case 'v': cout << version(); exit(0);    // Show version info, then exit
 
 			case 'C': collection=o->arg(); break;  //load in a collection
-			case 'V': verbose=1; break;  //turn on verbosity
-			case 'M': usememorythumbs=1; break;  //turn on verbosity
-			case 'L': usememorythumbs=2; break;  //turn on verbosity
+			case 'V': verbose = 1; break;  //turn on verbosity
+			case 'M': usememorythumbs = LivFlags::LIV_Memory_Thumbs; break;  //use thumbs in memory, do not generate any
+			case 'L': usememorythumbs = LivFlags::LIV_Local_Thumbs;  break;  //generate thumbs in file's local directory
 			case 'D': {
 					 //slide show delay in optional arg
 					if (o->arg()) slidedelay=(int) (1000*strtof(o->arg(),NULL));
@@ -198,7 +193,7 @@ int main(int argc,char **argv)
 			case '1': onetoone=LIVZOOM_One_To_One; break;
 			case 'r': recursive=1; break;
 			case 'R': reverse=1; break;
-			case 'T': tuio=1; break;
+			//case 'T': tuio=1; break;
 			case 's': { //sort
 					sort=newstr(o->arg());
 			    } break;
@@ -260,14 +255,15 @@ int main(int argc,char **argv)
 
 	for (o=options.remaining(); o; o=options.next()) {
 		DBG cerr <<"adding file name "<<o->arg()<<"..."<<endl;
-		liv->AddFile(o->arg(),NULL,NULL);
+		liv->AddFile(o->arg(),NULL,NULL,true);
 		DBG cerr << "now has "<<liv->NumFiles()<<" files"<<endl;
 	}
+
 	if (collection) liv->LoadCollection(collection);
 	if (!liv->NumFiles()) {
 		 //use current directory when no file arguments given
-		liv->AddFile(".",NULL,NULL);
-		DBG cerr << "now has "<<liv->NumFiles()<<" files"<<endl;
+		liv->AddFile(".",NULL,NULL,true);
+		DBG cerr << "now has "<< liv->NumFiles() <<" files"<<endl;
 	}
 
 	if (sort) liv->Sort(sort);
@@ -281,7 +277,7 @@ int main(int argc,char **argv)
 
 	
 	
-	if (tuio) SetupTUIOListener("3333");
+	//if (tuio) SetupTUIOListener("3333");
 	app.run();
 
 	DBG cerr <<"---------App Close--------------"<<endl;

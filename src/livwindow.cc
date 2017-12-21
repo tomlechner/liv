@@ -1,5 +1,3 @@
-// $Id: livwindow.cc 635 2012-03-12 00:21:48Z tomlechner $
-
 
 #include <dirent.h>
 #include <pthread.h>
@@ -151,14 +149,14 @@ void *actually_generate_previews(void *)
 
 ActionBox::ActionBox()
 {
-	action=LIVA_None;
-	index=0;
-	is_abs_dims=1;
+	action      =LIVA_None;
+	index       =0;
+	is_abs_dims =1;
 	action_class=ACTIONCLASS_Display;
-	v=0;
-	show_hover=0;
-	mode=0;
-	submode=0;
+	value       =0;
+	show_hover  =0;
+	mode        =0;
+	submode     =0;
 }
 
 ActionBox::ActionBox(const char *t,  //!< box text
@@ -173,83 +171,105 @@ ActionBox::ActionBox(const char *t,  //!< box text
 		  action(a),
 		  is_abs_dims(isabsdims) 
 {
-	index=i;
-	text=t;
-	v=0;
+	action_class=ACTIONCLASS_Display;
+	index     =i;
+	text      =t;
+	value     =0;
 	show_hover=shover;
-	mode=mde;
-	submode=0;
+	mode      =mde;
+	submode   =0;
 }
 
 int ActionBox::GetInt()
 {
-	return (v+.5);
+	return (value+.5);
 }
 
 double ActionBox::GetDouble()
 {
-	return v;
+	return value;
 }
 
 
 
-//----------------------------- class ImageThumb -------------------
+//----------------------------- class ImageSet -------------------
 
-/*! \class ImageThumb
- * \brief Placeholder of a thumbnail of an ImageFile in a collection, set, or directory view.
+/*! \class ImageSet
+ * \brief Placeholder of a an instance of an image, set of images, or directory.
  *
  */
 
 
 
-ImageThumb::ImageThumb()
+ImageSet::ImageSet()
 {
-	parent=NULL;
-	image=NULL;
+	type    = SET_Is_Unknown;
+	parent  = NULL;
+	image   = NULL;
+	preview = NULL;
+	gap     = 0;
+
 	x=y=0;
 	width=height=0;
-	kidx=kidy=0;
 	kidswidth=kidsheight=0;
+	kidx=kidy=0;
 	scale_to_kids=1;
-	gap=0;
 }
 
-ImageThumb::ImageThumb(ImageFile *img, int xx,int yy)
+ImageSet::ImageSet(ImageFile *img, double xx,double yy)
 {
-	parent=NULL;
+	type    = SET_Is_Unknown;
+	parent  = NULL;
+	image   = NULL;
+	preview = NULL;
+	gap     = 0;
+
 	x=y=0;
 	width=height=0;
-	kidx=kidy=0;
 	kidswidth=kidsheight=0;
+	kidx=kidy=0;
 	scale_to_kids=1;
-	image=NULL;
+
 	Set(img,xx,yy);
 }
 
-ImageThumb::~ImageThumb()
+ImageSet::~ImageSet()
 {
-	if (image) image->dec_count();
+	if (image)   image->dec_count();
+	if (preview) preview->dec_count();
 }
 
-int ImageThumb::Gap(int newgap)
+int ImageSet::Gap(int newgap)
 {
 	return gap=newgap;
 }
 
-int ImageThumb::Add(ImageThumb *thumb)
+/*! Add a child ImageSet.
+ */
+int ImageSet::Add(ImageSet *thumb, int where)
 {
-	return kids.push(thumb);
+	return kids.push(thumb, LISTS_DELETE_Refcount, where);
 }
 
-int ImageThumb::Add(ImageFile *img)
+int ImageSet::Remove(int index)
 {
-	ImageThumb *thumb=new ImageThumb(img,0,0);
-	kids.push(thumb);
+	// ***
+	return 1;
+}
+
+
+/*! Add a child ImageSet that points to the given ImageFile.
+ */
+int ImageSet::Add(ImageFile *img, int where)
+{
+	ImageSet *thumb=new ImageSet(img,0,0);
+	kids.push(thumb, LISTS_DELETE_Refcount, where);
 	thumb->dec_count();
 	return 0;
 }
 
-void ImageThumb::Set(ImageFile *img, int xx,int yy)
+//! Set the image ref for *this.
+void ImageSet::Set(ImageFile *img, double xx,double yy)
 {
 	if (img!=image) {
 		if (image) image->dec_count();
@@ -268,7 +288,8 @@ void ImageThumb::Set(ImageFile *img, int xx,int yy)
 	}
 }
 
-void ImageThumb::Set(int xx,int yy, int ww,int hh)
+//! Set the bounds for *this.
+void ImageSet::Set(double xx,double yy, double ww,double hh)
 {
 	x=xx;
 	y=yy;
@@ -280,17 +301,15 @@ void ImageThumb::Set(int xx,int yy, int ww,int hh)
 /*! If how==0, then layout using kid's dimensions as best as possible within
  * existing width and height of *this.
  * how==1 lays out in one row.
- *
- * Return 1 for *this has new dimensions, or 0 for same dimensions.
  */
-void ImageThumb::Layout(int how)
+void ImageSet::Layout(int how)
 {
 	int maxwidth=width;
-	double wholew=0,wholeh=0;
+	double wholew = 0, wholeh = 0;
 
-	int rowheight=0;
+	int rowheight = 0;
 	int n;
-	int previewsize=256;
+	int previewsize = 256;
 	flatpoint curpos;
 	ImageFile *img;
 	Imlib_Image ii;
@@ -303,9 +322,6 @@ void ImageThumb::Layout(int how)
 	int thumbdisplaywidth=0;
 	if (how==1) thumbdisplaywidth=10000000;
 	if (thumbdisplaywidth<=0) thumbdisplaywidth=maxwidth;
-
-	//if (how==1) {
-	//}
 
 	for (int c=0; c<kids.n; c++) {
 		n++;
@@ -320,7 +336,7 @@ void ImageThumb::Layout(int how)
 		if (w<=0 || h<=0) { // need to find preview dimensions
 			int previewfound=0;
 			if (img->preview) {
-				ii=imlib_load_image(img->preview);
+				ii = imlib_load_image(img->previewfile);
 				if (ii) {
 					previewfound=1;
 					imlib_context_set_image(ii);
@@ -329,6 +345,7 @@ void ImageThumb::Layout(int how)
 					imlib_free_image();
 				}
 			} 
+
 			if (!previewfound) { //no preview image found, so figure dimensions in other ways
 				 //draw box with x in it for no preview
 				if (iw<=0 || ih<=0) { iw=ih=100; }
@@ -402,18 +419,17 @@ void ImageThumb::Layout(int how)
 
 ImageFile::ImageFile()
 {
-	is_set=0;
-	parent=NULL;
 	lastviewtime=0;
 	mark=0;
 
 	transform_identity(matrix);
 
-	state=FILE_Not_accessed;
-	filetype=FILE_is_unknown;
+	state=FILE_Not_accessed; //see ImgLoadState
+	filetype=FILE_Is_Unknown;
 
 	filename=NULL;
 	preview=NULL;
+	previewfile = NULL;
 	pwidth=pheight=0;
 
 	name=NULL;
@@ -425,140 +441,124 @@ ImageFile::ImageFile()
 
 /*! Copies over fname to filename, but does not more data lookup.
  */
-ImageFile::ImageFile(const char *fname)
+ImageFile::ImageFile(const char *fname, int thumb_location)
 {
-	is_set=0;
-	parent=NULL;
-	lastviewtime=0;
-	mark=0;
+	lastviewtime = 0;
+	mark = 0;
 
 	transform_identity(matrix);
 
-	state=FILE_Not_accessed;
-	filetype=FILE_is_unknown;
+	state = FILE_Not_accessed;
+	filetype = FILE_Is_Unknown;
 
-	filename=newstr(fname);
+	filename = newstr(fname);
 
-	preview=NULL;
-	pwidth=pheight=0;
+	preview = NULL;
+	previewfile = NULL;
+	pwidth = pheight = 0;
 
-	name=NULL;
-	image=NULL;
-	meta=NULL;
-	title=NULL;
-	description=NULL;
+	name  = NULL;
+	image = NULL;
+	meta  = NULL;
+	title = NULL;
+	description = NULL;
 
-	if (filename && type==ITEM_Is_File) {
-		 //find a suitable freedesktop thumbnail, if any
-		preview=freedesktop_thumbnail(filename,'l');
-
-		//DBG cerr <<"for file "<<filename<<" trying thumb "<<preview<<endl;
-		if (file_exists(preview,1,NULL)!=S_IFREG) {
-			 //preview file does not seem to exist, try a standard freedesktop one
-			delete[] preview;
-			preview=freedesktop_thumbnail(filename,'n');
-			//DBG cerr <<"for file "<<filename<<" trying thumb "<<preview<<endl;
-			if (file_exists(preview,1,NULL)!=S_IFREG) {
-				 //freedesktop one doesn't seem to exist, maybe try again later!
-				delete[] preview;
-				preview=NULL;
-			}
-		}
-
-		if (!preview) {
-			 //no preview file found, try the freedesktop 'l', and render in background
-			preview=freedesktop_thumbnail(filename,'l');
-			generate_preview(filename,preview); //background render
-		}
-
-
-		DBG cerr <<"For file \""<<filename<<endl;
-		DBG if (preview) cerr <<" -> Using preview "<<preview<<endl; else cerr <<" -> no preview found!"<<endl;
-
-		fillinfo(FILE_Has_stat|FILE_Has_image);
-	}
-
-
-	//struct stat {
-	//dev_t     st_dev;     /* ID of device containing file */
-	//ino_t     st_ino;     /* inode number */
-	//mode_t    st_mode;    /* protection */
-	//nlink_t   st_nlink;   /* number of hard links */
-	//uid_t     st_uid;     /* user ID of owner */
-	//gid_t     st_gid;     /* group ID of owner */
-	//dev_t     st_rdev;    /* device ID (if special file) */
-	//off_t     st_size;    /* total size, in bytes */
-	//blksize_t st_blksize; /* blocksize for filesystem I/O */
-	//blkcnt_t  st_blocks;  /* number of blocks allocated */
-	//time_t    st_atime;   /* time of last access */
-	//time_t    st_mtime;   /* time of last modification */
-	//time_t    st_ctime;   /* time of last status change */
-	//};
+	SetFile(fname, thumb_location);
 }
 
-ImageFile::ImageFile(int ntype, const char *nname, const char *nfilename, const char *ntitle, const char *ndesc,Attribute *nmeta)
+ImageFile::ImageFile(const char *nname, const char *nfilename, const char *ntitle, const char *ndesc, Attribute *nmeta, int thumb_location)
 {
-	type=ntype;
-	name=newstr(nname);
-	filename=newstr(nfilename);
-	title=newstr(ntitle);
-	description=newstr(ndesc);
-	meta=(nmeta ? nmeta->duplicate() : NULL);
+	name       = newstr(nname);
+	filename   = newstr(nfilename);
+	title      = newstr(ntitle);
+	description= newstr(ndesc);
+	meta       = (nmeta ? nmeta->duplicate() : NULL);
 
-	parent=NULL;
-	lastviewtime=0;
 	mark=0;
+	lastviewtime=0;
 
 	transform_identity(matrix);
 
-	state=FILE_Not_accessed;
-	filetype=FILE_is_unknown;
+	state    = FILE_Not_accessed;
+	filetype = FILE_Is_Unknown;
 
 
-	preview=NULL;
+	preview = NULL;
+	previewfile = NULL;
 	pwidth=pheight=0;
 
-	if (filename && type==ITEM_Is_File) {
-		 //find a suitable freedesktop thumbnail, if any
-		preview=freedesktop_thumbnail(filename,'l');
-
-		//DBG cerr <<"for file "<<filename<<" trying thumb "<<preview<<endl;
-		if (file_exists(preview,1,NULL)!=S_IFREG) {
-			 //preview file does not seem to exist, try a standard freedesktop one
-			delete[] preview;
-			preview=freedesktop_thumbnail(filename,'n');
-			//DBG cerr <<"for file "<<filename<<" trying thumb "<<preview<<endl;
-			if (file_exists(preview,1,NULL)!=S_IFREG) {
-				 //freedesktop one doesn't seem to exist, maybe try again later!
-				delete[] preview;
-				preview=NULL;
-			}
-		}
-
-		if (!preview) {
-			 //no preview file found, try the freedesktop 'l', and render in background
-			preview=freedesktop_thumbnail(filename,'l');
-			generate_preview(filename,preview); //background render
-		}
-
-
-		DBG cerr <<"For file \""<<filename<<endl;
-		DBG if (preview) cerr <<" -> Using preview "<<preview<<endl; else cerr <<" -> no preview found!"<<endl;
-
-		fillinfo(FILE_Has_stat|FILE_Has_image);
-	}
-
+	SetFile(nfilename, thumb_location);
 }
 
 ImageFile::~ImageFile()
 {
 	if (image) image->dec_count();
+	if (preview) preview->dec_count();
 	if (filename) delete[] filename;
+	if (previewfile) delete[] previewfile;
 	if (name) delete[] name;
 	if (preview) delete[] preview;
 	if (meta) delete meta;
 	if (title) delete[] title;
 	if (description) delete[] description;
+}
+
+/*! thumb_location is one of:
+ *    LivFlags::LIV_Memory_Thumbs,
+ *    LivFlags::LIV_Local_Thumbs,
+ *    LivFlags::LIV_Freedesktop_Thumbs,
+ *    or LIV_None. If none, then don't bother about preview
+ */
+int ImageFile::SetFile(const char *nfilename, int thumb_location)
+{ //***
+	if (isblank(nfilename)) return 1;
+
+	makestr(filename, nfilename);
+
+	 //find a suitable large freedesktop thumbnail, if any
+	previewfile = freedesktop_thumbnail(filename,'l');
+
+	//DBG cerr <<"for file "<<filename<<" trying thumb "<<previewfile<<endl;
+	if (file_exists(previewfile,1,NULL) != S_IFREG) {
+		 //preview file does not seem to exist, try a standard freedesktop one
+		delete[] previewfile;
+		previewfile = freedesktop_thumbnail(filename,'n');
+
+		//DBG cerr <<"for file "<<filename<<" trying thumb "<<previewfile<<endl;
+		if (file_exists(previewfile,1,NULL) != S_IFREG) {
+			 //freedesktop one doesn't seem to exist, maybe try again later!
+			delete[] previewfile;
+			previewfile = NULL;
+		}
+	}
+
+	if (!previewfile && thumb_location != LIV_None) {
+		 //create a thumbnail if existing one not found
+
+		if (thumb_location == LIV_Freedesktop_Thumbs) {
+			 //no preview file found, try the freedesktop 'l', and render in background
+			previewfile = freedesktop_thumbnail(filename,'l');
+			generate_preview(filename,previewfile); //background render
+
+		} else if (thumb_location == LIV_Local_Thumbs) {
+			 //create a thumbnail in ./.thumbnails/ relative to file
+			//***
+			cerr <<" *** need to implement LIV_Local_Thumbs!"<<endl;
+
+		} else if (thumb_location == LIV_Memory_Thumbs) {
+			 //create a thumbnail in memory
+			//***
+			cerr <<" *** need to implement LIV_Memory_Thumbs!"<<endl;
+		}
+	}
+
+
+	DBG cerr <<"For file \""<<filename<<endl;
+	DBG if (previewfile) cerr <<" -> Using preview "<<previewfile<<endl; else cerr <<" -> no preview found!"<<endl;
+
+	fillinfo(FILE_Has_stat|FILE_Has_image);
+
+	return 0;
 }
 
 /*! which&FILE_Has_stat  means do stat, 
@@ -568,55 +568,77 @@ ImageFile::~ImageFile()
  *  Return 0 for success, nonzero for error.
  */
 int ImageFile::fillinfo(int which)
-{
+{ 
 	DBG cerr <<"getting info for "<<filename<<": "<<which<<endl;
 
+	 //grab file system stat info
 	if ((which&FILE_Has_stat) && !(state&FILE_Has_stat)) {
-		int c=stat(filename, &fileinfo);
-		if (c==0) state|=FILE_Has_stat;
-		else state&=~FILE_Has_stat;
+		int c = stat(filename, &fileinfo);
+		if (c==0) state |= FILE_Has_stat;
+		else state &= ~FILE_Has_stat;
+
+		//struct stat {
+		//dev_t     st_dev;     /* ID of device containing file */
+		//ino_t     st_ino;     /* inode number */
+		//mode_t    st_mode;    /* protection */
+		//nlink_t   st_nlink;   /* number of hard links */
+		//uid_t     st_uid;     /* user ID of owner */
+		//gid_t     st_gid;     /* group ID of owner */
+		//dev_t     st_rdev;    /* device ID (if special file) */
+		//off_t     st_size;    /* total size, in bytes */
+		//blksize_t st_blksize; /* blocksize for filesystem I/O */
+		//blkcnt_t  st_blocks;  /* number of blocks allocated */
+		//time_t    st_atime;   /* time of last access */
+		//time_t    st_mtime;   /* time of last modification */
+		//time_t    st_ctime;   /* time of last status change */
+		//};
 	}
-	if ((which&FILE_Has_image) && !(state&FILE_Has_image) && !image) {
-		image=load_image(filename);
+
+	 //read in actual image
+	if ((which & FILE_Has_image) && !(state & FILE_Has_image) && !image) {
+		image = load_image(filename);
 		if (!image) {
-			if (!filetype || filetype==FILE_is_image) filetype=0;
-			state&=~FILE_Has_image;
+			if (!filetype || filetype==FILE_Is_Image) filetype=0;
+			state &= ~FILE_Has_image;
 		} else {
-			state|=FILE_Has_image;
-			width=image->w();
-			height=image->h();
+			state |= FILE_Has_image;
+			width  = image->w();
+			height = image->h();
 		}
 	}
 
-	if ((which&FILE_Has_exif) && !(state&FILE_Has_exif) && !meta) {
-		state|=FILE_Has_exif;
+	 //scan image file for exif information
+	 //currently via shell call
+	if (!isblank(exif_exec) && (which & FILE_Has_exif) && !(state & FILE_Has_exif) && !meta) {
+		state |= FILE_Has_exif;
 		size_t c;
-		char *exif=new char[1024], *data;
+		char *exif = new char[1024], *data;
 		int at=0;
 		sprintf(exif,"%s %s",exif_exec,filename);
-		FILE *f=popen(exif,"r");
-		exif[0]='\0';
-		data=exif;
+		FILE *f = popen(exif,"r");
+		exif[0] = '\0';
+		data = exif;
+
 		if (f) {
 			while (1) {
-				c=fread(data,1,1024,f);
+				c = fread(data,1,1024,f);
 				if (c<1024) {
 					data[c]='\0';
 					break;
 				}
 				 //expand exif
-				char *temp=exif;
-				at+=1024;
-				exif=new char[at+1024];
+				char *temp = exif;
+				at += 1024;
+				exif = new char[at+1024];
 				memcpy(exif,temp,at);
 				delete[] temp;
-				data=exif+at;
+				data = exif+at;
 			}
 			fclose(f);
-			if (!meta) meta=new Attribute;
+			if (!meta) meta = new Attribute;
 			meta->push("exif",exif);
 		}
-		
+
 		DBG cout <<" ~~~ scanned in exif:"<<endl<<exif;
 	}
 
@@ -627,13 +649,13 @@ int ImageFile::fillinfo(int which)
 
 
 //! Return the number of SHOW_*, for single line items.
-static int numShowTypes(int i)
+int numShowTypes(int i)
 {
 	int n=0;
-	if (i&SHOW_Filename) n++;
-    if (i&SHOW_Index   ) n++;
-    if (i&SHOW_Filesize) n++;
-    if (i&SHOW_Dims    ) n++;
+	if (i & SHOW_Filename) n++;
+    if (i & SHOW_Index   ) n++;
+    if (i & SHOW_Filesize) n++;
+    if (i & SHOW_Dims    ) n++;
 
 	return n;
 }
@@ -665,65 +687,67 @@ LivWindow::LivWindow(anXWindow *parnt,const char *nname,const char *ntitle,unsig
 				xx,yy,ww,hh,brder,
 				NULL,0,NULL)
 {
+	fullscreen = fs;
+	if (fullscreen) win_style |= ANXWIN_FULLSCREEN;
+
 	 //init image in memory stuff, and top level boxes
-	current=NULL;
-	current_image_index=-1; //index in current set
-	collectionfile=NULL;
+	current = NULL;
+	current_image_index = -1; //index in current set
+	collectionfile = NULL;
 	InitializePlacements();
 
 	 //init gui things
 	InitActions();
 	actions=&imageactions;
 
-	curzone=&collection;
+	curzone = &collection;
 	transform_identity(screen_matrix);
 	transform_identity(thumb_matrix);
-	thumbdisplaywidth=-1;
-	previewsize=256;
-	screen_rotation=0;
+	thumbdisplaywidth = -1;
+	previewsize = 256;
+	screen_rotation = 0;
 
-	currentactionbox=NULL;
-	device1=device2=0;
-	hover_image=-1;
-	hover_text=NULL;
+	currentactionbox = NULL;
+	device1=device2 = 0;
+	hover_image = -1;
+	hover_text = NULL;
 
-	win_colors=new WindowColors;
-	win_colors->bg=rgbcolor(bgr,bgg,bgb);
-	win_colors->fg=rgbcolor(bgr<128?255:0, bgg<128?255:0, bgb<128?255:0);
+	win_colors = new WindowColors;
+	win_colors->bg = rgbcolor(bgr,bgg,bgb);
+	win_colors->fg = rgbcolor(bgr<128?255:0, bgg<128?255:0, bgb<128?255:0);
 
 	 //viewing state:
-	livflags=0;// LIV_Autoremove
-	timerid=0;
-	fullscreen=fs;
-	showoverlay=0;
-	showmarkedpanel=1;
-	imagesonly=1; //images, text files, other files, directories
-	dirsets=1; //0 is load dir contents and not keep as a set, 1 load as set
-	isonetoone=0;
-	firsttime=1;
-	showbasics=SHOW_All;
-	showmeta=0;
-	zoommode=zoom; //1==scale to screen, 2==scale to screen if bigger, 0==exact size
-	verbose=0;
-	currentmark=1;
-	viewmarked=0;
-	lastviewjump=0;//whether zoomed into an image (0), or just jumped right to it (1)
+	livflags = 0;// LIV_Autoremove
+	slideshow_timer = 0;
+	showoverlay = 0;
+	showmarkedpanel = 1;
+	imagesonly = 1; //images, text files, other files, directories
+	dirsets = 1; //0 is load dir contents and not keep as a set, 1 load as set
+	isonetoone = 0;
+	firsttime = 1;
+	showbasics = SHOW_All;
+	showmeta = 0;
+	zoommode = zoom; //1==scale to screen, 2==scale to screen if bigger, 0==exact size
+	verbose = 0;
+	currentmark = 1;
+	viewmarked = 0;
+	lastviewjump = 0;//whether zoomed into an image (0), or just jumped right to it (1)
 
 	slidedelay=slided;//in milliseconds
-	if (slidedelay>0) viewmode=VIEW_Slideshow;
-	else viewmode=VIEW_Normal;
-	lastmode=viewmode;
+	if (slidedelay>0) viewmode = VIEW_Slideshow;
+	else viewmode = VIEW_Normal;
+	lastmode = viewmode;
 
 	//overlaymodifier=imlib_create_color_modifier();
-	overlay_color=NULL;
-	overlayalpha=50; //default overlay transparency
+	overlay_color = NULL;
+	overlayalpha = 50; //default overlay transparency
 
-	first_tag_action=0;
+	first_tag_action = 0;
 
-	needtomap=1;
-	thumbgap=5;
+	needtomap = 1;
+	thumbgap = 5;
 
-	thumb_location=memorythumbs; //fd, memory, or local
+	thumb_location = memorythumbs;
 }
 
 LivWindow::~LivWindow()
@@ -736,7 +760,8 @@ LivWindow::~LivWindow()
 //! Set up placement of main 3 areas, which are direct children of top.
 void LivWindow::InitializePlacements()
 {
-	app->ScreenInfo(0,&defaultwidth,&defaultheight,NULL,NULL,NULL,NULL,NULL,NULL);
+	//*** need actual screen
+	app->ScreenInfo(0,NULL,NULL,&defaultwidth,&defaultheight,NULL,NULL,NULL,NULL);
 
 	selection.width =defaultwidth;
 	selection.height=defaultheight;
@@ -756,32 +781,16 @@ void LivWindow::InitializePlacements()
 
 int LivWindow::init()
 {
-	if (fullscreen) {
-		 //set up window state to cooperate with full screen (does this work???)
-		Atom prop_fs = XInternAtom(app->dpy, "_NET_WM_STATE_FULLSCREEN", False);
-		Atom prop_state = XInternAtom(app->dpy, "_NET_WM_STATE", False);
-
-		XEvent ev;
-		memset(&ev, 0, sizeof(ev));
-		ev.xclient.type = ClientMessage;
-		ev.xclient.message_type = prop_state;
-		ev.xclient.display = app->dpy;
-		ev.xclient.window = xlib_window;
-		ev.xclient.format = 32;
-		ev.xclient.data.l[0] = (fullscreen ? 1 : 0);
-		ev.xclient.data.l[1] = prop_fs;
-
-		XChangeProperty(app->dpy, xlib_window, prop_state, XA_ATOM, 32, PropModeReplace, (unsigned char *)&prop_fs, 1);
-	}
-
 	PositionMiscBoxes();
 	return 0;
 }
 
 int LivWindow::Idle(int tid)
 {
+	if (tid != slideshow_timer) return 0;
+
 	SelectImage(current_image_index+1);
-	needtodraw=1;
+	needtodraw = 1;
 	return 0;
 }
 
@@ -791,7 +800,7 @@ int LivWindow::Idle(int tid)
 int LivWindow::MapThumbs()
 {
 	curzone->width=win_w;
-	ImageThumb *zone=curzone;
+	ImageSet *zone=curzone;
 	//int changed;
 
 	do {
@@ -835,9 +844,9 @@ int LivWindow::Mode(int newmode)
 int LivWindow::StartSlideshow() 
 {
 	Mode(VIEW_Slideshow);
-	if (slidedelay<=0) slidedelay=2000; //in milliseconds
-	timerid=app->addtimer(this,slidedelay,slidedelay,-1);
-	needtodraw=1;
+	if (slidedelay <= 0) slidedelay = 2000; //in milliseconds
+	slideshow_timer = app->addtimer(this,slidedelay,slidedelay,-1);
+	needtodraw = 1;
 	return 0;
 }
 
@@ -845,6 +854,9 @@ void LivWindow::Refresh()
 {
 	needtodraw=0;
 	
+	Displayer *dp=GetDisplayer();
+	dp->MakeCurrent(this);
+
 	if (firsttime) {
 		if (curzone->kids.n==0) {
 			DBG cerr << "No more files, so quitting!"<<endl;
@@ -885,6 +897,8 @@ void LivWindow::Refresh()
  */
 void LivWindow::RefreshHelp()
 {
+	Displayer *dp=GetDisplayer();
+
 	ShortcutManager *m=GetDefaultShortcutManager();
 
 	ShortcutDefs *s;
@@ -917,7 +931,7 @@ void LivWindow::RefreshHelp()
 		appendstr(helpkeys,"\n");
 	}
 
-	textout_multiline(this, helpkeys,-1, win_w/4,win_h/2, LAX_LEFT|LAX_VCENTER);
+	dp->textout(win_w/4,win_h/2, helpkeys,-1,  LAX_LEFT|LAX_VCENTER);
 	delete[] helpkeys;
 }
 
@@ -925,11 +939,13 @@ void LivWindow::RefreshHelp()
  */
 void LivWindow::RefreshThumbs()
 {
+	Displayer *dp=GetDisplayer();
+
 	//int x,y,w,h;
 	flatpoint curpos;
 	//flatpoint p[4];
 	//ImageFile *img;
-	//ImageThumb *imgt;
+	//ImageSet *imgt;
 	//double scale=norm(flatpoint(thumb_matrix[0],thumb_matrix[1]));
 	//double ww,hh;
 	//double iw,ih;
@@ -938,21 +954,22 @@ void LivWindow::RefreshThumbs()
 	if (thumbdisplaywidth<=0) thumbdisplaywidth=win_w;
 	if (needtomap) MapThumbs();
 
-	DrawThumbsRecurseUp(curzone);
-	DrawThumbsRecurseDown(curzone);
-
+	double m[6];
+	transform_identity(m);
+	DrawThumbsRecurseUp(curzone, m);
+	DrawThumbsRecurseDown(curzone, m);
 
 	if (n==0) {
-		foreground_color(win_colors->fg);
-		textout(this,_("No Images"),-1, win_w/2,win_h/2, LAX_CENTER);
+		dp->NewFG(win_colors->fg);
+		dp->textout(win_w/2,win_h/2, _("No Images"),-1, LAX_CENTER);
 	}
 
 	 //hover a message near image that mouse is currently over
 	if (hover_image>=0 && hover_image<curzone->kids.n) {
-		foreground_color(win_colors->bg);
-		fill_rectangle(this, hover_area.minx,hover_area.miny, hover_area.maxx-hover_area.minx,hover_area.maxy-hover_area.miny);
-		foreground_color(win_colors->fg);
-		textout(this, hover_text,-1, (hover_area.minx+hover_area.maxx)/2,(hover_area.miny+hover_area.maxy)/2, LAX_CENTER); 
+		dp->NewFG(win_colors->bg);
+		dp->drawrectangle(hover_area.minx,hover_area.miny, hover_area.maxx-hover_area.minx,hover_area.maxy-hover_area.miny, 1);
+		dp->NewFG(win_colors->fg);
+		dp->textout((hover_area.minx+hover_area.maxx)/2,(hover_area.miny+hover_area.maxy)/2, hover_text,-1, LAX_CENTER); 
 	}
 	
 //		 // *** show all tags
@@ -1014,41 +1031,52 @@ void LivWindow::RefreshThumbs()
 /*! Draw adjacent thumbs to thumb.
  * Goes up one, does DrawThumbsRecurseDown() on all kids but thumb,
  */
-void LivWindow::DrawThumbsRecurseUp(ImageThumb *thumb, double *m)
+void LivWindow::DrawThumbsRecurseUp(ImageSet *thumb, double *m)
 {
 	if (!thumb->parent) return;
 
-	ImageThumb *zone=thumb->parent;
+	ImageSet *zone=thumb->parent;
 
 	for (int c=0; c<zone->kids.n; c++) {
 		if (zone->kids.e[c]==thumb) continue;
 
-		if (*** zone->kids.e[c] out of bounds) continue;
+		//if (*** zone->kids.e[c] out of bounds) continue;
 
-		DrawThumbsRecurseDown(zone->kids.e[c], *** m);
+		//DrawThumbsRecurseDown(zone->kids.e[c], *** m);
 	}
 }
 
 /*! Draw current thumb and any children.
  */
-void LivWindow::DrawThumbsRecurseDown(ImageThumb *thumb, double *m)
-{ ***
-	*** if too small, return;
+void LivWindow::DrawThumbsRecurseDown(ImageSet *thumb, double *m)
+{ // ***
+	return;
+	// *** if too small, return;
+
+	Displayer *dp=GetDisplayer();
+
+	int n=0, e=0;
+	double x,y,w,h;
+	int iw,ih;
+	double ww,hh;
+	flatpoint p[4];
 
 	for (int c=0; c<curzone->kids.n; c++) {
-		*** if too small, return;
+		// *** if too small, return;
 
 		if (viewmarked) {
-			if ((curzone->kids.e[c]->mark&viewmarked)==0) continue;
+			if (curzone->kids.e[c]->image && (curzone->kids.e[c]->image->mark & viewmarked)==0) continue;
 		}
 		n++;
 
-		img=curzone->kids.e[c];
+		ImageSet  *imgt = curzone->kids.e[c];
+		ImageFile *img  = imgt->image;
+
 		e=1; //whether to draw image or an X
-		x=imgt->tx;
-		y=imgt->ty;
-		w=imgt->tw-thumbgap;
-		h=imgt->th-thumbgap; //pixel width of preview image
+		x=imgt->x;
+		y=imgt->y;
+		w=imgt->width -thumbgap;
+		h=imgt->height-thumbgap; //pixel width of preview image
 
 		if (h<=0 || w<=0) {
 			iw=img->width;
@@ -1072,7 +1100,7 @@ void LivWindow::DrawThumbsRecurseDown(ImageThumb *thumb, double *m)
 		hh=norm(p[3]-p[0]);
 
 		if (img->preview) {
-			ii=imlib_load_image(img->preview);
+			Imlib_Image ii = imlib_load_image(img->previewfile);
 			if (ii) {
 				e=0;
 				//DBG cerr <<"ONE  w,h:"<<w<<"x"<<h<<"  ww,hh:"<<ww<<'x'<<hh<<endl;
@@ -1090,9 +1118,9 @@ void LivWindow::DrawThumbsRecurseDown(ImageThumb *thumb, double *m)
 			 //draw box with x in it for no preview
 			//DBG cerr <<"TWO  w,h:"<<w<<"x"<<h<<"  ww,hh:"<<ww<<'x'<<hh<<endl;
 
-			draw_lines(this, p,4,1);
-			draw_line(this, p[0].x,p[0].y, p[2].x,p[2].y);
-			draw_line(this, p[1].x,p[1].y, p[3].x,p[3].y);
+			dp->drawlines(p,4,1,0);
+			dp->drawline(p[0].x,p[0].y, p[2].x,p[2].y);
+			dp->drawline(p[1].x,p[1].y, p[3].x,p[3].y);
 		}
 
 		if (img->mark&1) {
@@ -1100,7 +1128,7 @@ void LivWindow::DrawThumbsRecurseDown(ImageThumb *thumb, double *m)
 			hh/=6;
 			if (hh>maxh) hh=maxh;
 
-			draw_thing(this, p[2].x-hh,p[2].y-hh,hh,hh, THING_Diamond,rgbcolor(0,255,0),rgbcolor(0,255,0),1);
+			dp->drawthing(p[2].x-hh,p[2].y-hh,hh,hh, THING_Diamond, rgbcolor(0,255,0),rgbcolor(0,255,0),1);
 		}
 
 	} //foreach image
@@ -1117,6 +1145,7 @@ void LivWindow::RefreshNormal()
 		return;
 	}
 
+	Displayer *dp=GetDisplayer();
 
 	if (overlay_color==NULL) {
 		//laximlib_update_alpha(overlayalpha);
@@ -1138,16 +1167,16 @@ void LivWindow::RefreshNormal()
 	if (current->image) {
 
 		int w,h;
-		w=current->image->w();
-		h=current->image->h();
+		w=current->image->width;
+		h=current->image->height;
 		
 		//box.clear();
 		flatpoint ul,ur,ll;
-		ul=transform_point(current->matrix, 0,0);
-		ur=transform_point(current->matrix, w,0);
-		ll=transform_point(current->matrix, 0,h);
+		ul=transform_point(current->image->matrix, 0,0);
+		ur=transform_point(current->image->matrix, w,0);
+		ll=transform_point(current->image->matrix, 0,h);
 
-		if (screen_rotation!=0) {
+		if (screen_rotation != 0) {
 			ul=transform_point(screen_matrix,ul);
 			ur=transform_point(screen_matrix,ur);
 			ll=transform_point(screen_matrix,ll);
@@ -1162,7 +1191,7 @@ void LivWindow::RefreshNormal()
 		//if (***any point is off screen) { ***draw only what is necessary
 		//	box.clear();
 		//	 //figure out how screen maps to image space
-		//	transfrom_invert(mm,current->matrix);
+		//	transfrom_invert(mm,current->image->matrix);
 		//	box.addtobounds(transform_point(mm,flatpoint(0,0)));
 		//	box.addtobounds(transform_point(mm,flatpoint(0,win_h)));
 		//	box.addtobounds(transform_point(mm,flatpoint(win_w,0)));
@@ -1175,9 +1204,9 @@ void LivWindow::RefreshNormal()
 		//	if (box.maxy>current->height) box.maxy=current->height;
 		// 
 		//	 //remap relevant portion of image to screen
-		//	ul=transform_point(current->matrix, box.minx,box.miny);
-		//	ur=transform_point(current->matrix, box.maxx,box.miny)-ul;
-		//	ll=transform_point(current->matrix, box.minx,box.maxy)-ul;
+		//	ul=transform_point(current->image->matrix, box.minx,box.miny);
+		//	ur=transform_point(current->image->matrix, box.maxx,box.miny)-ul;
+		//	ll=transform_point(current->image->matrix, box.minx,box.maxy)-ul;
 		//	imlib_render_image_on_drawable_skewed(box.minx,box.miny, 
 		//					box.maxx-box.minx, box.maxy-box.miny,
 		//					(int)ul.x,(int)ul.y,
@@ -1194,7 +1223,7 @@ void LivWindow::RefreshNormal()
 //							(int)ur.x,(int)ur.y,
 //							(int)ll.x,(int)ll.y);
 		//image_out_skewed(current->image,this,
-		image_out_skewed(current->image,this,
+		image_out_skewed(current->image->image,this,
 							//0,0, 
 							//w,h,
 							(int)ul.x,(int)ul.y,
@@ -1219,38 +1248,43 @@ void LivWindow::RefreshNormal()
 
 	if (showbasics) {
 		static char text[500];
-		drawing_function(GXor);
+		dp->BlendMode(LAXOP_Xor);
+
 		if (showbasics&SHOW_Filename) {
-			sprintf(text,"%s",current->filename);
+			sprintf(text,"%s",current->image->filename);
 			if (curzone->kids.n>1) {
 				sprintf(text+strlen(text),"  (%d/%d)",1+current_image_index,curzone->kids.n);
 			}
-			textout(this, text,-1,0,y,LAX_TOP|LAX_LEFT);
-			y+=app->defaultlaxfont->textheight();
+			dp->textout(0,y, text,-1, LAX_TOP|LAX_LEFT);
+			y+=dp->textheight();
 		}
+
 		if (showbasics&SHOW_Index) {
 			sprintf(text,"%d/%d",1+current_image_index,curzone->kids.n);
-			textout(this,text,-1,0,y,LAX_TOP|LAX_LEFT);
-			y+=app->defaultlaxfont->textheight();
+			dp->textout(0,y, text,-1, LAX_TOP|LAX_LEFT);
+			y+=dp->textheight();
 		}
+
 		if (showbasics&SHOW_Filesize) {
-			double s=current->fileinfo.st_size;
+			double s=current->image->fileinfo.st_size;
 			if (s<1024) {
-				sprintf(text,"%d bytes",(int)current->fileinfo.st_size);
+				sprintf(text,"%d bytes",(int)current->image->fileinfo.st_size);
 			} else if (s<1024*1024) {
-				sprintf(text,"%ld kb",current->fileinfo.st_size/1024);
+				sprintf(text,"%ld kb",current->image->fileinfo.st_size/1024);
 			} else {
-				sprintf(text,"%.1f Mb",current->fileinfo.st_size/1024./1024);
+				sprintf(text,"%.1f Mb",current->image->fileinfo.st_size/1024./1024);
 			}
 
-			textout(this,text,-1,0,y,LAX_TOP|LAX_LEFT);
-			y+=app->defaultlaxfont->textheight();
+			dp->textout(0,y, text,-1, LAX_TOP|LAX_LEFT);
+			y+=dp->textheight();
 		}
+
 		if (showbasics&SHOW_Dims) {
-			sprintf(text,"%d x %d",current->width,current->height);
-			textout(this, text,-1,0,y,LAX_TOP|LAX_LEFT);
-			y+=app->defaultlaxfont->textheight();
+			sprintf(text,"%d x %d", current->image->width,current->image->height);
+			dp->textout(0,y, text,-1, LAX_TOP|LAX_LEFT);
+			y+=dp->textheight();
 		}
+
 		if (showbasics&SHOW_Tags) {
 			for (int c=0; c<tagboxes.n; c++) {
 				textout(this, tagboxes.e[c]->text.c_str(), -1, 
@@ -1260,19 +1294,25 @@ void LivWindow::RefreshNormal()
 			}
 
 			 //draw new tag box
-			foreground_color(coloravg(win_colors->fg,win_colors->bg));
+			dp->NewFG(coloravg(win_colors->fg,win_colors->bg));
 			//DBG cerr <<"new tag text:"<<newtag->text.c_str()<<endl;
-			textout(this, newtag->text.c_str(), -1, 
-					(newtag->minx+newtag->maxx)/2,
-					(newtag->miny+newtag->maxy)/2,
-					LAX_CENTER);
-			foreground_color(win_colors->fg);
+			dp->textout((newtag->minx+newtag->maxx)/2,
+						(newtag->miny+newtag->maxy)/2,
+						newtag->text.c_str(), -1,
+						LAX_CENTER);
+			dp->NewFG(win_colors->fg);
 		}
-		drawing_function(GXcopy);
+		dp->BlendMode(LAXOP_Over);
 	}
 
-	if (current->meta && showmeta) {
-		textout_multiline(this, current->meta,-1, 0,y, LAX_LEFT|LAX_TOP);
+	if (current->image->meta && current->image->meta->attributes.n && showmeta) {
+		int x=0;
+		double th=dp->textheight();
+		for (int c=0; c<current->image->meta->attributes.n; c++) {
+			x=dp->textout(0,y, current->image->meta->attributes.e[c]->name,-1,  LAX_LEFT|LAX_TOP);
+			dp->textout(x,y,   current->image->meta->attributes.e[c]->value,-1, LAX_LEFT|LAX_TOP);
+			y+=th;
+		}
 	}
 
 	if (verbose) {
@@ -1281,11 +1321,11 @@ void LivWindow::RefreshNormal()
 			if (!b->is_abs_dims) {
 				double w=win_w; // *** must account for rotated screen!!
 				double h=win_h; // *** must account for rotated screen!!
-				textout(this, currentactionbox->text.c_str(),-1, (b->maxx+b->minx)/2*w,(b->maxy+b->miny)/2*h, LAX_CENTER);
+				dp->textout((b->maxx+b->minx)/2*w,(b->maxy+b->miny)/2*h, currentactionbox->text.c_str(),-1,  LAX_CENTER);
 				DBG cerr << "text "<<b->text<<" at "<<(b->maxx+b->minx)/2*w<<','<<(b->maxy+b->miny)/2*h<<endl;
 			} else {
 				DBG cerr << "text "<<b->text<<" at "<<(b->maxx+b->minx)/2<<','<<(b->maxy+b->miny)/2<<endl;
-				textout(this, currentactionbox->text.c_str(),-1, (b->maxx+b->minx)/2,(b->maxy+b->miny)/2, LAX_CENTER);
+				dp->textout((b->maxx+b->minx)/2,(b->maxy+b->miny)/2, currentactionbox->text.c_str(),-1, LAX_CENTER);
 			}
 		}
 	}
@@ -1298,10 +1338,10 @@ void LivWindow::RefreshNormal()
 	if (currentactionbox) {
 		ActionBox *b=currentactionbox;
 		if (b->show_hover) {
-			foreground_color(coloravg(win_colors->fg,win_colors->bg,.6666));
-			fill_rectangle(this,b->minx,b->miny, b->maxx-b->minx,b->maxy-b->miny);
-			foreground_color(coloravg(win_colors->fg,win_colors->bg,.3));
-			textout(this, b->text.c_str(),-1, (b->maxx+b->minx)/2,(b->maxy+b->miny)/2, LAX_CENTER);
+			dp->NewFG(coloravg(win_colors->fg,win_colors->bg,.6666));
+			dp->drawrectangle(b->minx,b->miny, b->maxx-b->minx,b->maxy-b->miny, 1);
+			dp->NewFG(coloravg(win_colors->fg,win_colors->bg,.3));
+			dp->textout((b->maxx+b->minx)/2,(b->maxy+b->miny)/2, b->text.c_str(),-1,  LAX_CENTER);
 		}
 	}
 }
@@ -1311,30 +1351,33 @@ void LivWindow::RefreshNormal()
  */
 void LivWindow::ShowMarkedPanel()
 {
-	if (selection.kids.n) {
+	if (selection.kids.n) { 
+		Displayer *dp=GetDisplayer();
+
 		ActionBox *b;
 		ImageFile *img;
 		Imlib_Image ii;
+
 		for (int c=0; c<selboxes.n; c++) {
 			b=selboxes.e[c];
 			if (b->action==LIVA_Show_All_Selected) {
 				 //draw gray background and text
-				foreground_color(coloravg(win_colors->fg,win_colors->bg,.6666));
-				fill_rectangle(this,b->minx,b->miny, b->maxx-b->minx,b->maxy-b->miny);
-				foreground_color(win_colors->fg);
-				textout(this, b->text.c_str(),-1, (b->maxx+b->minx)/2,(b->maxy+b->miny)/2, LAX_CENTER);
+				dp->NewFG(coloravg(win_colors->fg,win_colors->bg,.6666));
+				dp->drawrectangle(b->minx,b->miny, b->maxx-b->minx,b->maxy-b->miny, 1);
+				dp->NewFG(win_colors->fg);
+				dp->textout((b->maxx+b->minx)/2,(b->maxy+b->miny)/2, b->text.c_str(),-1, LAX_CENTER);
 
-			} else if (b->action==LIVA_Show_Selected && b->index>=0 && b->index<selection.kids.n) {
+			} else if (b->action==LIVA_Show_Selected_Image && b->index>=0 && b->index<selection.kids.n) {
 				 //draw thumbnail
 				img=selection.kids.e[b->index]->image;
 
-				if (img==current && viewmode==VIEW_Normal) {
+				if (img==current->image && viewmode==VIEW_Normal) {
 					int h=(b->maxy-b->miny)/2;
-					draw_thing(this,win_w-h/2,win_h-2.5*h,h/2,h/2, THING_Diamond,rgbcolor(0,255,0),rgbcolor(0,255,0),1);
+					dp->drawthing(win_w-h/2,win_h-2.5*h,h/2,h/2, THING_Diamond, rgbcolor(0,255,0),rgbcolor(0,255,0),1);
 				}
 
 				if (img->preview && img->width>0 && img->height>0) {
-					ii=imlib_load_image(img->preview);
+					ii = imlib_load_image(img->previewfile);
 					if (ii) {
 						imlib_context_set_image(ii);
 						imlib_render_image_on_drawable_at_size(b->minx,b->miny, b->maxx-b->minx,b->maxy-b->miny);
@@ -1349,13 +1392,15 @@ void LivWindow::ShowMarkedPanel()
 //! Save files, or a subset if viewmarked!=0.
 /*! If viewmarked!=0, then do not clobber collectionfile. Only use file name here, but don't remember it.
  */
-int LivWindow::SaveCollection(const char *file, ImageThumb *list)
+int LivWindow::SaveCollection(const char *file, ImageSet *list)
 {
 	FILE *f=fopen(file,"w");
 	if (!f) {
 		DBG cerr <<"Could not open "<<file<<" for writing!!"<<endl;
 		return 1;
 	}
+
+	if (!list) list=&collection;
 
 	if (!viewmarked) makestr(collectionfile,file);
 
@@ -1374,22 +1419,22 @@ int LivWindow::SaveCollection(const char *file, ImageThumb *list)
 
 /*! Write out the image info.
  */
-void LivWindow::dump_img(FILE *f, ImageThumb *t, int indent)
+void LivWindow::dump_img(FILE *f, ImageSet *t, int indent)
 {
 	if (!t) return;
-	ImageFile *i=t->i;
+	ImageFile *i = t->image;
 	if (!i) return;
 
 	char spc[indent+1]; memset(spc,' ',indent); spc[indent]='\0';
 	char *tags;
 
-	if (i->type==ITEM_Is_File) {
+	if (t->type == SET_Is_File) {
 		fprintf(f,"%sfile %s\n",spc,i->filename);
 
-	} else if (i->type==ITEM_Is_Directory) {
+	} else if (t->type == SET_Is_Directory) {
 		fprintf(f,"%sdirectory %s\n",spc,i->filename);
 
-	} else if (i->type==ITEM_Is_Set) {
+	} else if (t->type == SET_Is_Set) {
 		fprintf(f,"%sset %s\n",spc,i->name?i->name:"\"Untitled\"");
 	}
 
@@ -1414,19 +1459,19 @@ void LivWindow::dump_img(FILE *f, ImageThumb *t, int indent)
 		i->meta->dump_out(f,indent+4);
 	}
 
-	if (i->type==ITEM_Is_Set) {
-		if (i->kids.n) {
-			for (int c=0; c<i->kids.n; c++) {
-				dump_img(f,i->kids.e[c],indent+2);
-			}
-		}
-	}
+//	if (i->type==SET_Is_Set) {
+//		if (i->kids.n) {
+//			for (int c=0; c<i->kids.n; c++) {
+//				dump_img(f,i->kids.e[c],indent+2);
+//			}
+//		}
+//	}
 
 }
 
-int LivWindow::dump_in_img(ImageThumb *dest, LaxFiles::Attribute *att, const char *directory)
+int LivWindow::dump_in_img(ImageSet *dest, LaxFiles::Attribute *att, const char *directory)
 {
-	*** //must check against files list, to not create unnecessary dups
+	// *** //must check against files list, to not create unnecessary dups
 
 	if (!dest || !att) return 1;
 
@@ -1456,13 +1501,15 @@ int LivWindow::dump_in_img(ImageThumb *dest, LaxFiles::Attribute *att, const cha
 		iname=NULL;
 
 		if (!strcmp(name,"file")) {
-			type=ITEM_Is_File;
+			type=SET_Is_File;
 			img=value;
+
 		} else if (!strcmp(name,"directory")) {
-			type=ITEM_Is_Directory;
+			type=SET_Is_Directory;
 			img=value;
+
 		} else if (!strcmp(name,"set")) {
-			type=ITEM_Is_Set;
+			type=SET_Is_Set;
 			iname=value;
 		}
 
@@ -1490,18 +1537,20 @@ int LivWindow::dump_in_img(ImageThumb *dest, LaxFiles::Attribute *att, const cha
 		}
 
 		imgfile=full_path_for_file(img,directory);
-		ii=new ImageFile(type,iname,imgfile,title,desc,meta);
+		ii = new ImageFile(iname,imgfile,title,desc,meta, thumb_location);
+		if (tags) ii->InsertTags(tags,false);
 		delete[] imgfile;
 		dest->Add(ii);
-		tt=dest->kids.e[dest->kids.n-1];
+		ImageSet *tt=dest->kids.e[dest->kids.n-1];
 		numadded++;
 
-		if (type==ITEM_Is_Set) {
+		if (type==SET_Is_Set) {
 			 // read in kids
 			dump_in_img(tt, att->attributes.e[c], directory);
 		}
 	}
 
+	return 0;
 }
 
 /*! Return 0 for success or nonzero for error.
@@ -1514,13 +1563,9 @@ int LivWindow::LoadCollection(const char *file)
 	char *coldir=lax_dirname(file,0);
 
 	Attribute att;
-	char *name,*value;
-	char *img, *imgfile;
-	char *tags;
-	ImageFile *ii=NULL;
 	if (att.dump_in(file,NULL)!=0) return 1;
 
-	ImageThumb *dest=&collection;
+	ImageSet *dest=&collection;
 	dump_in_img(dest,&att,coldir);
 
 	if (!collectionfile) makestr(collectionfile,file);
@@ -1532,16 +1577,17 @@ int LivWindow::LoadCollection(const char *file)
 int LivWindow::Event(const EventData *data,const char *mes)
 {
 	if (!strcmp(mes,"saveas")) {
+		 //sent from a save as dialog
 		const StrEventData *s=dynamic_cast<const StrEventData*>(data);
 		if (!s || isblank(s->str)) return 1;
-		SaveCollection(s->str);
+		SaveCollection(s->str,NULL);
 		return 0;
 
 	} else if (!strcmp(mes,"newtag")) {
 		if (!current) return 0;
 		const StrEventData *s=dynamic_cast<const StrEventData*>(data);
 		if (!s || isblank(s->str)) return 1;
-		current->InsertTags(s->str,0);
+		current->image->InsertTags(s->str,0);
 		PositionTagBoxes();
 		needtodraw=1;
 		return 0;
@@ -1574,11 +1620,11 @@ void LivWindow::RotateScreen(int howmuch)
 	screen_rotation=howmuch;
 	if (screen_rotation==0) {
 		transform_set(screen_matrix,1,0,0,1,0,0);
-	} else if (screen_rotation==1) { //90 clockwise
+	} else if (screen_rotation==90) { //90 clockwise
 		transform_set(screen_matrix,0,1,-1,0,win_w,0);
-	} else if (screen_rotation==2) { //180
+	} else if (screen_rotation==180) { //180
 		transform_set(screen_matrix,-1,0,0,-1, win_w,win_h);
-	} else { //90 cc
+	} else { //270: 90 cc
 		transform_set(screen_matrix,0,1,-1,0, 0,win_h);
 	}
 }
@@ -1603,13 +1649,13 @@ ActionBox *LivWindow::GetAction(int x,int y,unsigned int state, int *boxindex)
 	 //  3   ---> y, ^ x
 	 //              | 
 	
-	if (screen_rotation==0) {
+	if (screen_rotation == 0) {
 		w=win_w; h=win_h; 
-	} else if (screen_rotation==1) { //90 clockwise
+	} else if (screen_rotation == 90) { //90 clockwise
 		h=win_w; w=win_h; 
-	} else if (screen_rotation==2) { //180
+	} else if (screen_rotation == 180) { //180
 		w=win_w; h=win_h; 
-	} else { //90 cc
+	} else { //270: 90 cc
 		h=win_w; w=win_h; 
 	}
 	flatpoint p=transform_point_inverse(screen_matrix,flatpoint(x,y));
@@ -1658,15 +1704,19 @@ ActionBox *LivWindow::GetAction(int x,int y,unsigned int state, int *boxindex)
 ActionBox *LivWindow::GetAction(PtrStack<ActionBox> *alist, int x,int y,unsigned int state, int *boxindex)
 {
 	double w,h;
-	if (screen_rotation==0) {
-		w=win_w; h=win_h; 
-	} else if (screen_rotation==1) { //90 clockwise
-		h=win_w; w=win_h; 
-	} else if (screen_rotation==2) { //180
-		w=win_w; h=win_h; 
+	if (screen_rotation == 0) {
+		w = win_w;  h = win_h; 
+
+	} else if (screen_rotation == 90) { //90 clockwise
+		h = win_w;  w = win_h; 
+
+	} else if (screen_rotation == 180) { //180
+		w = win_w;  h = win_h; 
+
 	} else { //90 cc
-		h=win_w; w=win_h; 
+		h = win_w;  w = win_h; 
 	}
+
 	flatpoint p=transform_point_inverse(screen_matrix,flatpoint(x,y));
 	double xx,yy;  //(xx,yy) is a coordinate with values where (1,1)==(w,h)
 	xx=p.x/w;
@@ -1725,7 +1775,9 @@ int LivWindow::ToggleMenu()
 	int th=app->defaultlaxfont->textheight();
 	int w,x2=win_w-2*th;
 	int y=0;
-	w=getextent(_("Filename Caseless"),-1, NULL,NULL)+th;
+
+	Displayer *dp=GetDisplayer();
+	w=dp->textextent(_("Filename Caseless"),-1, NULL,NULL)+th;
 
 	menuactions.push(new ActionBox(_("Sort"),              LIVA_None,-1,                 1,  x2-w,x2, y,y+2*th, 1,VIEW_Thumbs), 1); y+=2*th;
 	menuactions.push(new ActionBox(_("Reverse"),           LIVA_Sort_Reverse,-1,         1,  x2-w,x2, y,y+2*th, 1,VIEW_Thumbs), 1); y+=2*th;
@@ -1757,7 +1809,7 @@ int LivWindow::LBDown(int x,int y,unsigned int state,int count, const LaxMouse *
 }
 
 int LivWindow::LBUp(int x,int y,unsigned int state, const LaxMouse *d)
-{ ***
+{ // ***
 	DBG cerr<<"LivWindow::LBUp() id="<<d->id<<endl;
 
 	if (!buttondown.isdown(d->id,LEFTBUTTON)) return 0;
@@ -1811,14 +1863,16 @@ int LivWindow::LBUp(int x,int y,unsigned int state, const LaxMouse *d)
 		}
 
 		 //view image under mouse
-		int img=findImageAtCoord(x,y);
-		if (img>=0) {
-			SelectImage(img);
+		int iindex=-1;
+		findImageAtCoord(x,y, &iindex);
+		if (iindex>=0) {
+			SelectImage(iindex);
 			lastviewjump=1;
 			Mode(VIEW_Normal);
 			needtodraw=1;
 			return 0;
 		}
+
 		PerformAction(LIVA_Fit_To_Screen);
 		needtodraw=1;
 		return 0;
@@ -1848,7 +1902,7 @@ int LivWindow::MBDown(int x,int y,unsigned int state,int count, const LaxMouse *
 	buttondown.down(d->id,MIDDLEBUTTON, x,y);
 
 	mx=x; my=y;
-	//if (current) mbdown=transform_point_inverse(current->matrix,flatpoint(x,y));
+	//if (current) mbdown=transform_point_inverse(current->image->matrix,flatpoint(x,y));
 	if (current) mbdown=flatpoint(x,y);
 
 	return 0;
@@ -1867,24 +1921,24 @@ int LivWindow::RBDown(int x,int y,unsigned int state,int count, const LaxMouse *
 }
 
 int LivWindow::RBUp(int x,int y,unsigned int state, const LaxMouse *d)
-{ ***
+{ // ***
 	buttondown.up(d->id,RIGHTBUTTON);
 
 	if (!current) return 0;
 
-	flatpoint pi=transform_point_inverse(current->matrix,flatpoint(x,y));
+	flatpoint pi=transform_point_inverse(current->image->matrix,flatpoint(x,y));
 	PerformAction(LIVA_Scale_1_To_1);
 
-	flatpoint o=flatpoint(x,y)-transform_point(current->matrix,pi);
-	current->matrix[4]+=o.x;
-	current->matrix[5]+=o.y;
+	flatpoint o=flatpoint(x,y)-transform_point(current->image->matrix,pi);
+	current->image->matrix[4]+=o.x;
+	current->image->matrix[5]+=o.y;
 
 	return 0;
 }
 
 //! Wheel up.
 int LivWindow::WheelUp(int x,int y,unsigned int state, int count, const LaxMouse *d)
-{ ***
+{ // ***
 	if (viewmode==VIEW_Thumbs) {
 		 //zoom in
 
@@ -1892,10 +1946,10 @@ int LivWindow::WheelUp(int x,int y,unsigned int state, int count, const LaxMouse
 		flatpoint p=transform_point_inverse(thumb_matrix, flatpoint(x,y));
 		for (int c=0; c<curzone->kids.n; c++) {
 			if (curzone->width<=0) continue;
-			if (p.x>=curzone->kids.e[c]->x
-					&& p.x<curzone->kids.e[c]->t+curzone->kids.e[c]->width
-					&& p.y>=curzone->kids.e[c]->y
-					&& p.y<curzone->kids.e[c]->y+curzone->kids.e[c]->height) {
+			if (p.x >= curzone->kids.e[c]->x
+					&& p.x <  curzone->kids.e[c]->x+curzone->kids.e[c]->width
+					&& p.y >= curzone->kids.e[c]->y
+					&& p.y <  curzone->kids.e[c]->y+curzone->kids.e[c]->height) {
 				double tw=norm(transform_vector(thumb_matrix, flatpoint(curzone->kids.e[c]->width,0)));
 				double th=norm(transform_vector(thumb_matrix, flatpoint(0,curzone->kids.e[c]->height)));
 				DBG cerr <<"mouse in "<<c<<",  w,h:"<<tw<<','<<th<<endl;
@@ -1925,7 +1979,7 @@ int LivWindow::WheelUp(int x,int y,unsigned int state, int count, const LaxMouse
 	if ((state&LAX_STATE_MASK)==0) {
 		ActionBox *box=GetAction(x,y,state);
 		int action=box?box->action:LIVA_None;
-		if (action==LIVA_Next_Image || action==LIVA_Prev_Image) {
+		if (action==LIVA_Next || action==LIVA_Previous) {
 			SelectImage((current_image_index+curzone->kids.n-1)%curzone->kids.n);
 			needtodraw=1;
 			return 0;
@@ -1939,11 +1993,11 @@ int LivWindow::WheelUp(int x,int y,unsigned int state, int count, const LaxMouse
 
 //! Wheel down.
 int LivWindow::WheelDown(int x,int y,unsigned int state, int count, const LaxMouse *d)
-{ ***
+{ // ***
 	if ((state&LAX_STATE_MASK)==0) {
 		ActionBox *box=GetAction(x,y,state);
 		int action=box?box->action:LIVA_None;
-		if (action==LIVA_Next_Image || action==LIVA_Prev_Image) {
+		if (action==LIVA_Next || action==LIVA_Previous) {
 			SelectImage((current_image_index+1)%curzone->kids.n);
 			needtodraw=1;
 			return 0;
@@ -1960,7 +2014,7 @@ int LivWindow::WheelDown(int x,int y,unsigned int state, int count, const LaxMou
 			//*** set zoom also?
 
 			 //shift thumb view so same point in image is under mouse still
-			flatpoint p=transform_point_inverse(current->matrix,flatpoint(x,y));
+			flatpoint p=transform_point_inverse(current->image->matrix,flatpoint(x,y));
 			double xx=p.x/current->width; //xx,yy 0..1 corresponds to image bounds
 			double yy=p.y/current->height;
 
@@ -2000,26 +2054,27 @@ int LivWindow::WheelDown(int x,int y,unsigned int state, int count, const LaxMou
 	return 0;
 }
 
-//! For the thumb view, return the index in files of the image at screen position x,y, or -1 if not over any image.
-ImageThumb *LivWindow::findImageAtCoord(int x,int y, int *index_in_parent)
-{ ***
+//! For the thumb view, return the zone and index in the zone of the image at screen position x,y, or -1 if not over any image.
+ImageSet *LivWindow::findImageAtCoord(int x,int y, int *index_in_parent)
+{
 	flatpoint p=transform_point_inverse(thumb_matrix, flatpoint(x,y));
 
 	for (int c=0; c<curzone->kids.n; c++) {
 		if (curzone->kids.e[c]->width<=0) continue;
 		if (p.x>=curzone->kids.e[c]->x
-				&& p.x<curzone->kids.e[c]->t+curzone->kids.e[c]->width
-				&& p.y>=curzone->kids.e[c]->y
-				&& p.y<curzone->kids.e[c]->y+curzone->kids.e[c]->height) {
+				&& p.x <  curzone->kids.e[c]->x+curzone->kids.e[c]->width
+				&& p.y >= curzone->kids.e[c]->y
+				&& p.y <  curzone->kids.e[c]->y+curzone->kids.e[c]->height) {
 			return curzone->kids.e[c];
 		} 
 	}
-	*** if adjacent areas on screen, try those
-	return -1;
+
+	// *** if adjacent areas on screen, try those
+	return NULL;
 }
 
 int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
-{ ***
+{ // ***
 	ActionBox *oldaction=currentactionbox;
 
 	int aindex=0;
@@ -2038,22 +2093,17 @@ int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
 	//DBG	<<buttondown.isdown(d->id,RIGHTBUTTON)
 	//DBG <<"    d1,d2="<<device1<<','<<device2<<"  moved: "<<moved<<endl;
 
+	Displayer *dp=GetDisplayer();
+
 	if (viewmode==VIEW_Thumbs && !buttondown.any(0)) {
 		 //hover the file name
 		if (hover_image>=curzone->kids.n) hover_image=-2;
 		int old=hover_image;
-		hover_image=findImageAtCoord(x,y);
-//		if (hover_image<0) hover_image=findImageAtCoord(x,y);
-//		else if (x<curzone->e[hover_image]->tx
-//				 || x>curzone->e[hover_image]->tx+curzone->e[hover_image]->tw
-//				 || y<curzone->e[hover_image]->ty
-//				 || y>curzone->e[hover_image]->ty+curzone->e[hover_image]->th
-//				)
-//			hover_image=findImageAtCoord(x,y);
+		findImageAtCoord(x,y, &hover_image);
 
 		if (old!=hover_image && hover_image>=0) {
-			makestr(hover_text,curzone->kids.e[hover_image]->filename);
-			int w,h, xo=0,yo=0;
+			makestr(hover_text,curzone->kids.e[hover_image]->image->filename);
+			double w,h, xo=0,yo=0;
 			flatpoint p=transform_point(thumb_matrix,
 										flatpoint(curzone->kids.e[hover_image]->x+curzone->kids.e[hover_image]->width/2,
 										curzone->kids.e[hover_image]->y+curzone->kids.e[hover_image]->height));
@@ -2062,7 +2112,7 @@ int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
 			DBG double th=norm(transform_vector(thumb_matrix, flatpoint(0,curzone->kids.e[hover_image]->height)));
 			DBG cerr <<"------- mouse in "<<hover_image<<",  w,h:"<<tw<<','<<th<<endl;
 
-			getextent(hover_text,-1,&w,&h);
+			dp->textextent(hover_text,-1, &w,&h);
 			w+=h/2;
 			h*=1.5;
 
@@ -2104,7 +2154,7 @@ int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
 
 	 //2 mouse movements
 	double *m;
-	if (viewmode==VIEW_Normal) m=current->matrix;
+	if (viewmode==VIEW_Normal) m=current->image->matrix;
 	else if (viewmode==VIEW_Thumbs) m=thumb_matrix;
 
 	if (buttondown.isdown(0,LEFTBUTTON)>1 && device1>0 && device2>0 && (d->id==device1 || d->id==device2)) {
@@ -2167,19 +2217,19 @@ int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
 int LivWindow::toobig()
 {
 	flatpoint p1,p2;
-	p1=transform_point(current->matrix,current->width,current->height);
-	p2=transform_point(current->matrix,0,0);
+	p1=transform_point(current->image->matrix,current->width,current->height);
+	p2=transform_point(current->image->matrix,0,0);
 	return (p1-p2)*(p1-p2)>9*(win_h*win_h+win_w*win_w);
 }
 
 //! Zoom current image with screen point center staying at the same place.
 void LivWindow::Zoom(flatpoint center,double s)
 {
-	if (!current || !(current->state&FILE_Has_image)) return;
-	flatpoint p=transform_point_inverse(current->matrix,center);
+	if (!current || !(current->image->state&FILE_Has_image)) return;
+	flatpoint p=transform_point_inverse(current->image->matrix,center);
 
-	flatpoint x(current->matrix[0],current->matrix[1]),
-			  y(current->matrix[2],current->matrix[3]);
+	flatpoint x(current->image->matrix[0],current->image->matrix[1]),
+			  y(current->image->matrix[2],current->image->matrix[3]);
 
 	 //**** screwy zoom bounds checking
 	if (s>1 && norm(x)>4 && toobig()) return;//***need limits for image scale size, rather than mag!!!
@@ -2187,14 +2237,14 @@ void LivWindow::Zoom(flatpoint center,double s)
 
 	x*=s;
 	y*=s;
-	current->matrix[0]=x.x;
-	current->matrix[1]=x.y;
-	current->matrix[2]=y.x;
-	current->matrix[3]=y.y;
+	current->image->matrix[0]=x.x;
+	current->image->matrix[1]=x.y;
+	current->image->matrix[2]=y.x;
+	current->image->matrix[3]=y.y;
 
-	flatpoint o=center-transform_point(current->matrix,p);
-	current->matrix[4]+=o.x;
-	current->matrix[5]+=o.y;
+	flatpoint o=center-transform_point(current->image->matrix,p);
+	current->image->matrix[4]+=o.x;
+	current->image->matrix[5]+=o.y;
 
 	needtodraw=1;
 }
@@ -2225,10 +2275,10 @@ Laxkit::ShortcutHandler *LivWindow::GetShortcuts()
 
 	sc->Add(LIVA_Play,               'p',0,0,                            "Play",     _("Play"),NULL,0);
 
-	sc->Add(LIVA_Scale_1_To_1        '1',0,0,         "OneToOne",       _("Set scale 1:1"),NULL,0);
+	sc->Add(LIVA_Scale_1_To_1,       '1',0,0,         "OneToOne",       _("Set scale 1:1"),NULL,0);
 	sc->Add(LIVA_Fit_To_Screen,      ' ',0,0,         "CenterAndScale", _("Center image and scale to screen"),NULL,0);
 	sc->Add(LIVA_Center,             ' ',ShiftMask,0, "Center",         _("Center image"),NULL,0);
-	sc->Add(LIVA_NewTag              't',0,0,         "NewTag",         _("NewTag"),NULL,0);
+	sc->Add(LIVA_NewTag,             't',0,0,         "NewTag",         _("NewTag"),NULL,0);
 	sc->Add(LIVA_EditTag,            'T',ShiftMask,0, "EditTag",        _("EditTag"),NULL,0);
 	sc->Add(LIVA_Select,             'm',0,0,         "SelectCurrent",  _("Select current image"),NULL,0);
 	sc->Add(LIVA_Remove,             LAX_Bksp,0,0,    "RemoveImage",    _("Remove current image"),NULL,0);
@@ -2292,8 +2342,8 @@ int LivWindow::PerformAction(int action)
 	    if (viewmode==VIEW_Slideshow) {
 			 //turn off slideshow
 			Mode(VIEW_Normal);
-			if (timerid) app->removetimer(this,timerid);
-			timerid=0;
+			if (slideshow_timer) app->removetimer(this,slideshow_timer);
+			slideshow_timer=0;
 			return 0;
 
 		} else {
@@ -2324,20 +2374,20 @@ int LivWindow::PerformAction(int action)
 		 //scale 1:1 around center of screen
 		if (!current) return 0;
 
-		flatpoint p=transform_point_inverse(current->matrix,flatpoint(win_w/2,win_h/2));
+		flatpoint p=transform_point_inverse(current->image->matrix,flatpoint(win_w/2,win_h/2));
 
-		flatpoint x(current->matrix[0],current->matrix[1]),
-				  y(current->matrix[2],current->matrix[3]);
+		flatpoint x(current->image->matrix[0],current->image->matrix[1]),
+				  y(current->image->matrix[2],current->image->matrix[3]);
 		x/=norm(x);
 		y/=norm(y);
-		current->matrix[0]=x.x;
-		current->matrix[1]=x.y;
-		current->matrix[2]=y.x;
-		current->matrix[3]=y.y;
+		current->image->matrix[0]=x.x;
+		current->image->matrix[1]=x.y;
+		current->image->matrix[2]=y.x;
+		current->image->matrix[3]=y.y;
 
-		flatpoint o=flatpoint(win_w/2,win_h/2)-transform_point(current->matrix,p);
-		current->matrix[4]+=o.x;
-		current->matrix[5]+=o.y;
+		flatpoint o=flatpoint(win_w/2,win_h/2)-transform_point(current->image->matrix,p);
+		current->image->matrix[4]+=o.x;
+		current->image->matrix[5]+=o.y;
 
 		needtodraw=1;
 		return 0;
@@ -2345,24 +2395,25 @@ int LivWindow::PerformAction(int action)
 	} else if (action==LIVA_Fit_To_Screen || action==LIVA_Center) {
 		if (!current || !current->width) return 0;
 
-		if (action==LIVA_Fit_To_Screen) ScaleToFit(current);
+		if (action==LIVA_Fit_To_Screen) ScaleToFit(current->image);
 
 		double W,H;
-		if (screen_rotation==0 || screen_rotation==2) {
+		if (screen_rotation==0 || screen_rotation==180) {
 			W=win_w;
 			H=win_h;
 		} else {
 			W=win_h;
 			H=win_w;
 		}
-		flatpoint o=flatpoint(W/2,H/2)-transform_point(current->matrix,current->width/2,current->height/2);
-		current->matrix[4]+=o.x;
-		current->matrix[5]+=o.y;
+		flatpoint o=flatpoint(W/2,H/2)-transform_point(current->image->matrix,current->width/2,current->height/2);
+		current->image->matrix[4]+=o.x;
+		current->image->matrix[5]+=o.y;
 
 		needtodraw=1;
 		return 0;
 
 	} else if (action==LIVA_NewTag) {
+		int x=20, y=20; // ***
 		app->addwindow(new LineEdit(this,_("New tag"),_("New tag"),
 									   ANXWIN_ESCAPABLE|LINEEDIT_DESTROY_ON_ENTER|LINEEDIT_GRAB_ON_MAP,
 									   x+15,y, 20*app->defaultlaxfont->textheight(),1.5*app->defaultlaxfont->textheight(), 5,
@@ -2376,11 +2427,12 @@ int LivWindow::PerformAction(int action)
 //									   _("Cancel"),BUTTON_CANCEL));
 
 	} else if (action==LIVA_EditTag) { //edit this tag
+		int x=20, y=20; // ***
 		app->addwindow(new LineEdit(this,_("Retag"),_("Retag"),
 									   ANXWIN_ESCAPABLE|LINEEDIT_DESTROY_ON_ENTER|LINEEDIT_GRAB_ON_MAP,
 									   x+15,y, 20*app->defaultlaxfont->textheight(),1.5*app->defaultlaxfont->textheight(), 5,
 									   NULL,object_id,"retag",
-									   current->GetTag(actionbox->index)));
+									   current->image->GetTag(currentactionbox->index)));
 		return 0;
 
 	} else if (action==LIVA_Select) { //add the current image to marked images
@@ -2390,14 +2442,14 @@ int LivWindow::PerformAction(int action)
 			i=selection.kids.pushnodup(current);
 		} else if (viewmode==VIEW_Thumbs) {
 			if (hover_image<0 || hover_image>=curzone->kids.n) return 0;
-			ImageFile *img=curzone->kids.e[hover_image];
-			i=selection.kids.pushnodup(img);
+			ImageFile *img=curzone->kids.e[hover_image]->image;
+			i=selection.Add(img);
 		} else return 0;
 
 		if (i>=0) {
 			selection.kids.remove(i);
-			current->mark&=~currentmark;
-		} else current->mark|=currentmark;
+			current->image->mark &= ~currentmark;
+		} else current->image->mark |= currentmark;
 		PositionSelectionBoxes();
 		needtomap=2;
 		needtodraw=1;
@@ -2413,28 +2465,28 @@ int LivWindow::PerformAction(int action)
 
 
 	} else if (action==LIVA_RotateScreen || action==LIVA_RotateScreenR) {
-		if (action==LIVA_RotateScreen) screen_rotation++; else screen_rotation--;
-		if (screen_rotation>3) screen_rotation=0;
-		else if (screen_rotation<0) screen_rotation=3;
+		if (action==LIVA_RotateScreen) screen_rotation += 90; else screen_rotation -= 90;
+		if (screen_rotation > 270) screen_rotation = 0;
+		else if (screen_rotation < 0) screen_rotation = 270;
 		RotateScreen(screen_rotation);
 		needtodraw=1;
 		return 0;
 
 	} else if (action==LIVA_RotateImage || action==LIVA_RotateImageR) {
 		if (viewmode==VIEW_Normal) {
-			flatpoint o=transform_point(current->matrix,current->width/2,current->height/2);
-			flatpoint x(current->matrix[0],current->matrix[1]);
-			flatpoint y(current->matrix[2],current->matrix[3]);
+			flatpoint o=transform_point(current->image->matrix,current->width/2,current->height/2);
+			flatpoint x(current->image->matrix[0],current->image->matrix[1]);
+			flatpoint y(current->image->matrix[2],current->image->matrix[3]);
 			x=rotate(x,action==LIVA_RotateImage?90:-90,1);
 			y=rotate(y,action==LIVA_RotateImage?90:-90,1);
-			current->matrix[0]=x.x;
-			current->matrix[1]=x.y;
-			current->matrix[2]=y.x;
-			current->matrix[3]=y.y;
+			current->image->matrix[0]=x.x;
+			current->image->matrix[1]=x.y;
+			current->image->matrix[2]=y.x;
+			current->image->matrix[3]=y.y;
 
-			flatpoint o2=transform_point(current->matrix,current->width/2,current->height/2)-o;
-			current->matrix[4]-=o2.x;
-			current->matrix[5]-=o2.y;
+			flatpoint o2=transform_point(current->image->matrix,current->width/2,current->height/2)-o;
+			current->image->matrix[4]-=o2.x;
+			current->image->matrix[5]-=o2.y;
 			needtodraw=1;
 		}
 		
@@ -2442,9 +2494,9 @@ int LivWindow::PerformAction(int action)
 
 	} else if (action==LIVA_ToggleMeta) {
 		if (!current) return 0;
-		if (!current->meta) showmeta=1; else showmeta=!showmeta;
+		if (!(current->image && current->image->meta)) showmeta=1; else showmeta=!showmeta;
 
-		if (!current->meta) current->fillinfo(FILE_Has_exif);
+		if (!current->image->meta) current->image->fillinfo(FILE_Has_exif);
 		needtodraw=1;
 		return 0;
 
@@ -2525,8 +2577,8 @@ int LivWindow::PerformAction(int action)
 		files.flush();
 		collection.kids.flush();
 		for (int c=0; c<selection.kids.n; c++) {
-			files.push(selection.kids.e[c]);
-			collection.kids.push(selection.kids.e[c]);
+			files.push(selection.kids.e[c]->image);
+			collection.Add(selection.kids.e[c]);
 		}
 		selection.kids.flush();
 		SelectImage(0);
@@ -2534,7 +2586,7 @@ int LivWindow::PerformAction(int action)
 		return 0;
 
 	} else if (action==LIVA_Show_Selected_Image) {
-		SelectImage(index);
+		SelectImage(current_image_index);
 		needtodraw=1;
 		return 0;
 
@@ -2542,12 +2594,6 @@ int LivWindow::PerformAction(int action)
 		 // show the selected zone
 		viewmarked=currentmark;
 		Mode(VIEW_Thumbs);
-		needtodraw=1;
-		return 0;
-
-	} else if (action==LIVA_Show_Selected) {
-		 //show selected image
-		SelectImage(index);
 		needtodraw=1;
 		return 0;
 
@@ -2611,14 +2657,14 @@ int LivWindow::PerformAction(int action)
 	}
 
 	const char *sort=NULL;
-	if (action==LIVA_Sort_Date) sort="date";
+	if (action==LIVA_Sort_Date)          sort="date";
 	else if (action==LIVA_Sort_Filesize) sort="size";
-	else if (action==LIVA_Sort_Area) sort="pixels";
-	else if (action==LIVA_Sort_Width) sort="width";
-	else if (action==LIVA_Sort_Height) sort="height";
+	else if (action==LIVA_Sort_Area)     sort="pixels";
+	else if (action==LIVA_Sort_Width)    sort="width";
+	else if (action==LIVA_Sort_Height)   sort="height";
 	else if (action==LIVA_Sort_Filename) sort="name";
 	else if (action==LIVA_Sort_FilenameCaseless) sort="casename";
-	else if (action==LIVA_Sort_Random) sort="random";
+	else if (action==LIVA_Sort_Random)   sort="random";
 	if (sort) {
 		Sort(sort);
 		currentactionbox=NULL;
@@ -2701,7 +2747,7 @@ void LivWindow::ScaleToFit(ImageFile *img)
 	box.addtobounds(transform_point(img->matrix,img->width,0));
 	box.addtobounds(transform_point(img->matrix,img->width,img->height));
 
-	if (screen_rotation==0 || screen_rotation==2) {
+	if (screen_rotation==0 || screen_rotation==180) {
 		W=win_w;
 		H=win_h;
 	} else {
@@ -2724,14 +2770,14 @@ void LivWindow::ScaleToFit(ImageFile *img)
 }
 
 //! Set the zoom on images if necessary.
-void LivWindow::setzoom(ImageThumb *which)
+void LivWindow::setzoom(ImageSet *which)
 {
 	if (zoommode==LIVZOOM_Scale_To_Screen || zoommode==LIVZOOM_Shrink_To_Screen) {
 		if (!which) which=curzone;
 
 		 //zoom to fit in window always and center
 		double W,H;
-		if (screen_rotation==0 || screen_rotation==2) {
+		if (screen_rotation==0 || screen_rotation==180) {
 			W=win_w;
 			H=win_h;
 		} else {
@@ -2743,11 +2789,11 @@ void LivWindow::setzoom(ImageThumb *which)
 			if (which->kids.e[c]->width<=0) continue;
 			 //zoommode shrink to screen: fit in window if bigger, and center
 			if (!(zoommode==LIVZOOM_Shrink_To_Screen && which->kids.e[c]->width<W && which->kids.e[c]->height<H)) 
-				ScaleToFit(which->kids.e[c]);
+				ScaleToFit(which->kids.e[c]->image);
 
-			o=flatpoint(W/2,H/2)-transform_point(which->kids.e[c]->matrix,which->kids.e[c]->width/2,which->kids.e[c]->height/2);
-			which->kids.e[c]->matrix[4]+=o.x;
-			which->kids.e[c]->matrix[5]+=o.y;
+			o=flatpoint(W/2,H/2)-transform_point(which->kids.e[c]->image->matrix,which->kids.e[c]->width/2,which->kids.e[c]->height/2);
+			which->kids.e[c]->image->matrix[4]+=o.x;
+			which->kids.e[c]->image->matrix[5]+=o.y;
 
 			if (which->kids.e[c]->kids.n) setzoom(which->kids.e[c]);
 		}
@@ -2797,11 +2843,11 @@ int LivWindow::SelectImage(int i)
 //	}
 	while (1) {
 		current=curzone->kids.e[i];
-		if (!current->image) current->fillinfo(FILE_Has_image);
-		if (current->image || !(livflags&LIV_Autoremove)) break;
+		if (!current->image->image) current->image->fillinfo(FILE_Has_image);
+		if (current->image->image || !(livflags&LIV_Autoremove)) break;
 
 		 //Automatically remove any files that are not readable images
-		DBG cerr <<"removing "<<current->filename<<" from list"<<endl;
+		DBG cerr <<"removing "<<current->image->filename<<" from list"<<endl;
 		RemoveFile(i);
 
 		if (i==curzone->kids.n || direction<0) i--;
@@ -2818,14 +2864,14 @@ int LivWindow::SelectImage(int i)
 	current_image_index=i;
 
 	 //change window name
-	char newname[10+strlen(current->filename)];
-	sprintf(newname,"%s (Liv)",current->filename);
+	char newname[10+strlen(current->image->filename)];
+	sprintf(newname,"%s (Liv)",current->image->filename);
 	WindowTitle(newname);
 	
 	PositionSelectionBoxes();
 	PositionTagBoxes();
 	
-	if (!(current->state&FILE_Has_exif)) current->fillinfo(FILE_Has_exif);
+	if (!(current->image->state&FILE_Has_exif)) current->image->fillinfo(FILE_Has_exif);
 
 	return 0;
 }
@@ -2849,7 +2895,7 @@ int LivWindow::SelectImage(int i)
 //}
 
 void LivWindow::PositionMiscBoxes()
-{ ***
+{ // ***
 	for (int c=0; c<actions->n; c++) {
 		if (actions->e[c]->action==LIVA_Menu) {
 			int w=getextent(_("Menu"),-1,NULL,NULL);
@@ -2864,12 +2910,14 @@ void LivWindow::PositionMiscBoxes()
 
 //! Flush selboxes, and repopulate.
 void LivWindow::PositionSelectionBoxes()
-{ ***
+{ // ***
+	Displayer *dp=GetDisplayer();
+
 	currentactionbox=NULL;
 	selboxes.flush();
 
 	char str[100];
-	int x,y,w,h;
+	double x,y,w,h;
 
 	if (selection.kids.n==0) {
 		sprintf(str,_("Select"));
@@ -2898,7 +2946,7 @@ void LivWindow::PositionSelectionBoxes()
 
 	 //show all selected button
 	sprintf(str,"%d selected",selection.kids.n);
-	getextent(str,-1,&w,&h);
+	dp->textextent(str,-1, &w,&h);
 	x=win_w-w-h;
 	y=win_h-h*2;
 	selboxes.push(new ActionBox(str,
@@ -2922,7 +2970,7 @@ void LivWindow::PositionSelectionBoxes()
 		s=(2.*h)/hh;
 		ww*=s;
 		selboxes.push(new ActionBox(str,
-									LIVA_Show_Selected, c,
+									LIVA_Show_Selected_Image, c,
 									1,
 									x-ww, x,
 									y,y+2*h));
@@ -2935,18 +2983,22 @@ void LivWindow::PositionSelectionBoxes()
 void LivWindow::PositionTagBoxes()
 {
 	if (!current) return;
+
+	Displayer *dp=GetDisplayer();
+
 	int x=0, y, starty=(SHOW_NUM_SINGLE_LINE+1)*app->defaultlaxfont->textheight();
 	y=starty;
 
 	tagboxes.flush();
-	int textheight=app->defaultlaxfont->textheight();
+	int textheight = dp->textheight();
 	int w,maxw=0;
 	int colstart=0;
-	for (int c=0; c<current->NumberOfTags(); c++) {
+
+	for (int c=0; c<current->image->NumberOfTags(); c++) {
 		//ActionBox(const char *t, int a, int isabsdims, double x1, double x2, double y1, double y2);
-		w=textheight+getextent(current->GetTag(c),-1,NULL,NULL);
+		w=textheight + dp->textextent(current->image->GetTag(c),-1,NULL,NULL);
 		if (w>maxw) maxw=w;
-		tagboxes.push(new ActionBox(current->GetTag(c),
+		tagboxes.push(new ActionBox(current->image->GetTag(c),
 									LIVA_EditTag,c,
 									1,
 									x,x+w,
@@ -2976,38 +3028,39 @@ typedef int (*SortFunc)(const void *, const void *);
 
 int dateCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1=(*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2=(*static_cast<ImageSet*const*>(v2))->image;
 
-	if ((*img1)->fileinfo.st_mtime==(*img2)->fileinfo.st_mtime) return 0;
-	if ((*img1)->fileinfo.st_mtime<(*img2)->fileinfo.st_mtime) return -1;
+	if (img1->fileinfo.st_mtime==img2->fileinfo.st_mtime) return 0;
+	if (img1->fileinfo.st_mtime <img2->fileinfo.st_mtime) return -1;
 	return 1;
 }
 
 int nameCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1=(*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2=(*static_cast<ImageSet*const*>(v2))->image;
 
-	return strcmp((*img1)->filename,(*img2)->filename);
+	return strcmp(img1->filename,img2->filename);
 }
 
 int sizeCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1=(*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2=(*static_cast<ImageSet*const*>(v2))->image;
 
-	if ((*img1)->fileinfo.st_size==(*img2)->fileinfo.st_size) return 0;
-	if ((*img1)->fileinfo.st_size<(*img2)->fileinfo.st_size) return -1;
+	if (img1->fileinfo.st_size==img2->fileinfo.st_size) return 0;
+	if (img1->fileinfo.st_size <img2->fileinfo.st_size) return -1;
 	return 1;
 }
 
 int pixelsCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1=(*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2=(*static_cast<ImageSet*const*>(v2))->image;
 
-	int a1=(*img1)->width*(*img1)->height, a2=(*img2)->width*(*img2)->height;
+	int a1 = img1->width*img1->height;
+	int a2 = img2->width*img2->height;
 	if (a1==a2) return 0;
 	if (a1<a2) return -1;
 	return 1;
@@ -3015,21 +3068,21 @@ int pixelsCompare(const void *v1, const void *v2)
 
 int widthCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1=(*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2=(*static_cast<ImageSet*const*>(v2))->image;
 
-	if ((*img1)->width==(*img2)->width) return 0;
-	if ((*img1)->width<(*img2)->width) return -1;
+	if (img1->width==img2->width) return 0;
+	if (img1->width <img2->width) return -1;
 	return 1;
 }
 
 int heightCompare(const void *v1, const void *v2)
 {
-	ImageFile *const *img1=static_cast<ImageThumb*const*>(v1)->image;
-	ImageFile *const *img2=static_cast<ImageThumb*const*>(v2)->image;
+	ImageFile const *img1 = (*static_cast<ImageSet*const*>(v1))->image;
+	ImageFile const *img2 = (*static_cast<ImageSet*const*>(v2))->image;
 
-	if ((*img1)->height==(*img2)->height) return 0;
-	if ((*img1)->height<(*img2)->height) return -1;
+	if ((img1)->height==(img2)->height) return 0;
+	if ((img1)->height <(img2)->height) return -1;
 	return 1;
 }
 
@@ -3048,25 +3101,25 @@ int LivWindow::Sort(const char *sortby)
 {
 	if (!sortby) return 0;
 	int n=0;
-	char **strs=split(sortby,',', &n);
+	char **strs = split(sortby,',', &n);
 	if (n==0) return 1;
 	for (int c=0; c<n; c++) stripws(strs[c]);
 
 
 	char *local=NULL;
 	int nn=0;
-	ImageThumb **array=curzone->kids.extractArrays(&local,&nn);
+	ImageSet **array = curzone->kids.extractArrays(&local,&nn);
 
 	SortFunc func=NULL;
-	if (!strcasecmp(strs[0],"date")) func=dateCompare;
-	else if (!strcasecmp(strs[0],"size")) func=sizeCompare;
-	else if (!strcasecmp(strs[0],"name")) func=nameCompare;
-	else if (!strcasecmp(strs[0],"pixels")) func=pixelsCompare;
-	else if (!strcasecmp(strs[0],"width")) func=widthCompare;
-	else if (!strcasecmp(strs[0],"height")) func=heightCompare;
+	if (!strcasecmp(strs[0],"date"))        func = dateCompare;
+	else if (!strcasecmp(strs[0],"size"))   func = sizeCompare;
+	else if (!strcasecmp(strs[0],"name"))   func = nameCompare;
+	else if (!strcasecmp(strs[0],"pixels")) func = pixelsCompare;
+	else if (!strcasecmp(strs[0],"width"))  func = widthCompare;
+	else if (!strcasecmp(strs[0],"height")) func = heightCompare;
 	else if (!strcasecmp(strs[0],"random")) {
 		int s; //place to swap
-		ImageFile *t;
+		ImageSet *t;
 		for (int c=nn-1; c>0; c--) {
 			s=((double)random()/RAND_MAX)*c;
 			t=array[c];
@@ -3076,7 +3129,7 @@ int LivWindow::Sort(const char *sortby)
 		func=NULL;
 	}
 
-	if (func) qsort(static_cast<void*>(array), nn, sizeof(ImageThumb*), func); 
+	if (func) qsort(static_cast<void*>(array), nn, sizeof(ImageSet*), func); 
 
 	curzone->kids.insertArrays(array,local,nn);
 	MapThumbs();
@@ -3086,17 +3139,17 @@ int LivWindow::Sort(const char *sortby)
 	return 0;
 }
 
-//! Reverse the order of files.
+//! Reverse the order of files in current zone.
 void LivWindow::ReverseOrder()
 {
 	if (!curzone->kids.n) return;
 
 	char *local=NULL;
 	int nn=0;
-	ImageThumb **array=curzone->kids.extractArrays(&local,&nn);
+	ImageSet **array=curzone->kids.extractArrays(&local,&nn);
 
 	int s;
-	ImageFile *t;
+	ImageSet *t;
 	for (int c=0; c<nn/2; c++) {
 		s=nn-1-c;
 		t=array[c];
@@ -3115,30 +3168,30 @@ void LivWindow::ReverseOrder()
  */
 int LivWindow::NumFiles(int which)
 {
-	if (which==0) return curzone->kids.n;
-	if (which==1) return collection.kids.n;
-	if (which==2) return selection.kids.n;
+	if (which == 0) return curzone->kids.n;
+	if (which == 1) return collection.kids.n;
+	if (which == 2) return selection.kids.n;
 
 	return 0;
 }
 
 //! Remove image index (in current zone) from current zone.
 int LivWindow::RemoveFile(int index)
-{
-	ImageFile *img=NULL;
+{ // *** 
 	if (index<0 || index>=curzone->kids.n) return 1;
-	img=curzone->kids.pop(index);
-	curzone->kids.remove(index);
-	tagcloud.RemoveObject(img);
+
+	ImageSet *img = curzone->kids.pop(index);
+	tagcloud.RemoveObject(img->image);
 	img->dec_count();
 	MapThumbs();
+
 	return 0;
 }
 
 /*! Returns 1 if not a directory.
  */
 int LivWindow::AddDirectory(const char *dir, int as_set, const char *tags)
-{ ***
+{ // ***
 	if (file_exists(dir,1,NULL)!=S_IFDIR) return 1;
 	
 	return 0;
@@ -3148,30 +3201,30 @@ int LivWindow::AddDirectory(const char *dir, int as_set, const char *tags)
  *
  * Return the number of files added.
  *
- * \todo implement recursive
+ * If recurse and file is a directory, then recursively add all files in that directory
  */
-int LivWindow::AddFile(const char *file, const char *tags, ImageThumb *list)
-{ ***
+int LivWindow::AddFile(const char *file, const char *tags, ImageSet *list, bool recurse)
+{
 	if (isblank(file)) return 0;
+
 	int n=0;
-	if (list==NULL) list=&collection;
+	if (list == NULL) list = &collection;
 
-	ImageFile *img=new ImageFile(file);
-	img->InsertTags(tags,0);
-	int recurse=0; //***
+	ImageFile *img = new ImageFile(file, thumb_location);
+	if (!isblank(tags)) img->InsertTags(tags,0);
 
-	if (file_exists(img->filename,1,NULL)==S_IFDIR) {
+	if (file_exists(img->filename,1,NULL) == S_IFDIR) {
 		if (recurse) {
 			delete img; img=NULL;
-			DIR *dir=opendir(file);
+			DIR *dir = opendir(file);
 			if (!dir) {
 				DBG cout << "*** could not open presumed directory: "<< file<<endl;
 				return n;
 			}
-			char *str=NULL;
+			char *str = NULL;
 			struct dirent *entry;
 			do { //readdir scandir telldir
-				entry=readdir(dir);
+				entry = readdir(dir);
 				if (!entry) break;
 
 				//if (!strcmp(entry.d_name,".") || !strcmp(entry.d_name,"..")) continue;
@@ -3180,9 +3233,10 @@ int LivWindow::AddFile(const char *file, const char *tags, ImageThumb *list)
 				makestr(str,file); //start with the dir name
 				if (file[strlen(file)]!='/') appendstr(str,"/");
 				appendstr(str,entry->d_name); //append file name
-				img=new ImageFile(str);
-				if (file_exists(img->filename,1,NULL)==S_IFREG) {
-					list->push(img);
+				img = new ImageFile(str, thumb_location);
+
+				if (file_exists(img->filename,1,NULL) == S_IFREG) {
+					list->Add(img);
 					tagcloud.AddObject(img);
 					img->dec_count();
 					n++;
@@ -3194,35 +3248,36 @@ int LivWindow::AddFile(const char *file, const char *tags, ImageThumb *list)
 			closedir(dir);
 
 		} else { //no recurse
-			img=new ImageFile(file);
-			img->is_set=SET_IS_DIRECTORY;
+			img=new ImageFile(file, thumb_location);
+			img->filetype = FILE_Is_Directory;
 		}
-
 	}
-	
+
 	 //add to full list of files, sorting by file name
 	int lower=0,upper=files.n-1, mid, c;
 	if (files.n) {
-		do {
-			c=strcmp(img->filename,files.e[lower]->filename);
+		do { //binary search
+			c = strcmp(img->filename,files.e[lower]->filename);
 			if (c==0) break; //found!
 			if (c<0) {
 				files.push(img,-1,lower);
 				break;
 			} else {
-				c=strcmp(img->filename,files.e[upper]->filename);
+				c = strcmp(img->filename,files.e[upper]->filename);
 				if (c==0) break; //found!
 				if (c>0) files.push(img,-1,upper+1);
 				break;
 			}
-			mid=(upper+lower)/2;
-			c=strcmp(img->filename,files.e[mid]);
+
+			mid = (upper+lower)/2;
+			c = strcmp(img->filename,files.e[mid]->filename);
 			if (c==0) break;
 			if (c<0) { upper=mid; }
 			else { lower=mid+1; }
 			if (lower==upper) { files.push(img,-1,lower); break; }
-		} while (lower<upper);
-	} else files->push(img);
+		} while (lower < upper);
+		
+	} else files.push(img);
 
 	collection.Add(img);
 	tagcloud.AddObject(img);

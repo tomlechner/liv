@@ -10,7 +10,8 @@ LAXIDIR=$(LAXDIR)/interfaces
 
 #------------------ you shouldn't have to change anything below
 LD=g++
-LDFLAGS= -L/usr/X11R6/lib -lX11 -lm -lcairo `imlib2-config --libs` `freetype-config --libs` $(OPTIONALLIBS) -lfontconfig -lXext -lXi -lXft -lssl -L$(LAXDIR) -L$(LAXIDIR)
+LDFLAGS= -L/usr/X11R6/lib -lXi -lXext -lX11 -lm -lpng `imlib2-config --libs` `freetype-config --libs`\
+          `cups-config --libs` -lXft -lcairo -lsqlite3 -lcrypto -lfontconfig -lpthread -L$(LAXIDIR) -L$(LAXDIR)
 DEBUGFLAGS= -g -Wall
 CPPFLAGS= $(DEBUGFLAGS) -I$(LAXDIR)/.. `freetype-config --cflags`
 
@@ -18,7 +19,10 @@ CPPFLAGS= $(DEBUGFLAGS) -I$(LAXDIR)/.. `freetype-config --cflags`
 objs= \
 	livwindow.o 
 	
-liv: lax laxtuio.o $(objs)
+liv: lax $(objs)
+	g++ liv.cc $(CPPFLAGS) $(LDFLAGS) $(objs) -llaxkit -llo -o $@
+
+liv-tuio: lax laxtuio.o $(objs)
 	g++ liv.cc $(CPPFLAGS) $(LDFLAGS) $(objs) -llaxkit -llo laxtuio.o -o $@
 
 liv-old: lax laxinterface $(objs)

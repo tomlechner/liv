@@ -1,12 +1,9 @@
-// $Id: livwindow.h 635 2012-03-12 00:21:48Z tomlechner $
-
 
 #ifndef LIV_LIVWINDOW_H
 #define LIV_LIVWINDOW_H
 
 #include <lax/anxapp.h>
 #include <lax/doublebbox.h>
-#include <lax/refcounted.h>
 #include <lax/tagged.h>
 #include <lax/doublebbox.h>
 #include <lax/buttondowninfo.h>
@@ -40,7 +37,7 @@ class ActionBox : public Laxkit::DoubleBBox
 	int action;
 	int index; //kind of a sub-action, action might be Show_Selected, and index would be which selected to show
 	ActionClassType action_class;
-	double v;
+	double value;
 	int is_abs_dims; //2 is real coords, 1 screen coords, 0 is 0..1 space
 	int show_hover; //show a highlighted box when the mouse hovers over the box
 	int mode, submode; //states under which box should be used
@@ -59,45 +56,27 @@ class ActionBox : public Laxkit::DoubleBBox
 
 
 
-//----------------------------- class ImageThumb ------------------------------------
+//----------------------------- class ImageSet ------------------------------------
 
-class ImageFile;
+enum LivSetType { //for ImageFile::type
+	SET_Is_Unknown,
+	SET_Is_File,
+	SET_Is_Set,
+	SET_Is_Directory,
 
-class ImageThumb : public Laxkit::RefCounted
-{
-  public:
-	ImageFile *image;
-
-	ImageThumb *parent;
-	double scale_to_kids;
-	double x,y; //offset to parent's kid offset
-	int width,height; //dimensions in parent coordinates
-	int kidx,kidy;   //offset to parents
-	int kidswidth,kidsheight;//kid space dimensions
-	int gap;
-
-	Laxkit::RefPtrStack<ImageThumb> kids;
-
-	ImageThumb();
-	ImageThumb(ImageFile *img, int xx,int yy);
-	virtual ~ImageThumb();
-	virtual void Set(ImageFile *img, int xx,int yy);
-	virtual void Set(int xx,int yy, int ww,int hh);
-	virtual int Gap(int newgap);
-	virtual int Add(ImageThumb *thumb);
-	virtual int Add(ImageFile *img);
-	virtual void Layout(int how);
+	SET_MAX
 };
 
-
-
-//----------------------------- class ImageFile --------------------------------------
-enum LivSettype {
-	ITEM_Is_File,
-	ITEM_Is_Set,
-	ITEM_Is_Directory,
-
-	ITEM_MAX
+//see ImageFile::filetype
+enum ImgFileType {
+	FILE_Is_Unknown,
+	FILE_Is_Text,
+	FILE_Is_Directory,
+	FILE_Is_Image,
+	FILE_Is_Animated,
+	FILE_Is_Movie,
+	FILE_Is_Binary,
+	FILE_MAX
 };
 
 enum PreviewState {
@@ -107,46 +86,100 @@ enum PreviewState {
 	PREVIEW_Loaded
 };
 
+//see ImageFile::fillinfo()
+enum ImgLoadState {
+	FILE_Not_accessed   = 0,
+	FILE_Has_stat       = (1<<0),
+	FILE_Has_exif       = (1<<1),
+	FILE_Has_image      = (1<<2),
+	FILE_Has_image_info = (1<<3),
+};
 
-class ImageFile : public Laxkit::RefCounted, public Laxkit::Tagged
+enum LivFlags {
+	LIV_None = 0,
+	LIV_Memory_Thumbs,
+	LIV_Local_Thumbs,
+	LIV_Freedesktop_Thumbs,
+
+	LIV_Autoremove=(1<<0),
+
+	LIV_MAX
+};
+
+class ImageFile;
+
+class ImageSet : public Laxkit::anObject
+{
+  public:
+	LivSetType type;
+
+	Laxkit::LaxImage *preview;
+	ImageFile *image;
+
+	ImageSet *parent;
+	Laxkit::RefPtrStack<ImageSet> kids;
+
+	double scale_to_kids;
+	double x,y; //offset to parent's kid offset
+	double width,height; //dimensions in parent coordinates
+	int kidx,kidy;   //offset to parents, in *this coordinates
+	int kidswidth,kidsheight;// *this space dimensions
+	int gap; //padding around thumbnails
+
+	ImageSet();
+	ImageSet(ImageFile *img, double xx,double yy);
+	virtual ~ImageSet();
+	virtual void Set(ImageFile *img, double xx,double yy);
+	virtual void Set(double xx,double yy, double ww,double hh);
+	virtual int Gap(int newgap);
+	virtual int Add(ImageSet *thumb, int where=-1);
+	virtual int Add(ImageFile *img, int where=-1);
+	virtual int Remove(int index);
+	virtual void Layout(int how);
+};
+
+
+//----------------------------- class ImageFile --------------------------------------
+
+class ImageFile : public Laxkit::anObject, public Laxkit::Tagged
 {
  public:
-	int type;   //whether it has kids. 1 is simple set, 2 is directory. if files removed from it, it becomes normal set
-	int filetype; //if file is image, text, unknown, etc
-	int is_set;
+	int filetype; //see ImgFileType
+
+	Laxkit::RefPtrStack<ImageSet> sets; //all sets this image belongs to
 
 	//RefPtrStack<ImageFile> alts; //Any different formats of an image that should be considered the same image
-	Laxkit::RefPtrStack<ImageFile> kids; //for sets or directories, this is its contents
-	Laxkit::RefPtrStack<ImageFile> sets; //all sets this image belongs to
-	ImageFile *parent;
 
 	int mark; //for marked sets, this gets toggled
 
 	char *name;
-	char *filename;
 	char *title;
 	char *description;
 	flatpoint metapoint;
 	LaxFiles::Attribute *meta;
 
 	double matrix[6];  //matrix for normal view
-	int width, height; //pixel size
+	int width, height; //actual pixel size of the image
 
+	char *filename;
 	Laxkit::LaxImage *image;
 	struct stat fileinfo;
 	int state;    //how much of the file's info has been found
 
-	char *preview;
-	int pwidth,pheight; //preview pixel size
+	char *previewfile;
+	Laxkit::LaxImage *preview;
+	int pwidth, pheight; //preview pixel size
 	PreviewState preview_state;
 	clock_t lastviewtime;
 
 	ImageFile();
-	ImageFile(const char *fname);
-	ImageFile(int ntype, const char *nname, const char *nfilename, const char *ntitle, const char *ndesc,LaxFiles::Attribute *nmeta);
+	ImageFile(const char *fname, int thumb_location);
+	ImageFile(const char *nname, const char *nfilename, const char *ntitle, const char *ndesc,LaxFiles::Attribute *nmeta, int thumb_location);
 	virtual ~ImageFile();
-	virtual int fillinfo(int which);
 	virtual const char *whattype() { return "ImageFile"; }
+
+	virtual int fillinfo(int which);
+	virtual int SetFile(const char *nfilename, int thumb_location);
 };
 
 
@@ -163,7 +196,7 @@ enum LivWindowActions {
 	LIVA_Beginning,
 	LIVA_End,
 	LIVA_Up,
-	LIVA_Scale_1_to_1,
+	LIVA_Scale_1_To_1,
 	LIVA_Fit_To_Screen,
 	LIVA_Center,
 	LIVA_NewTag,
@@ -204,23 +237,6 @@ enum LivWindowActions {
 	LIVA_MAX
 };
 
-//see ImageFile::fillinfo()
-enum ImgLoadState {
-	FILE_Not_accessed=0,
-	FILE_Has_stat    =1,
-	FILE_Has_exif    =2,
-	FILE_Has_image   =4
-};
-
-//see ImageFile::filetype
-enum ImgFileType {
-	FILE_is_unknown,
-	FILE_is_text,
-	FILE_is_dir,
-	FILE_is_image,
-	FILE_is_binary
-};
-
  //for LivWindow::zoommode
 enum ZoomMode {
 	LIVZOOM_One_To_One,
@@ -249,10 +265,6 @@ enum LivShowBasics {
 	SHOW_All        =(0xffff)
 };
 
-enum LivFlags {
-	LIV_Autoremove=(1<<0)
-};
-
 class LivWindow : public Laxkit::anXWindow
 {
   protected:
@@ -260,17 +272,14 @@ class LivWindow : public Laxkit::anXWindow
 	void InitializePlacements();
 
   public:
-	//RefPtrStack<ImageFile> view;
-
 	Laxkit::RefPtrStack<ImageFile> files; //total list of files, can be arranged in different sets
 
-	 //3 main zones:
-	ImageThumb top;
-	ImageThumb collection;
-	ImageThumb filesystem;
-
-	ImageThumb selection;
-	ImageThumb *curzone;
+	 //3 main zones under top:
+	ImageSet top; //contains collection, filesystem, and selection
+	ImageSet collection;
+	ImageSet filesystem; 
+	ImageSet selection;
+	ImageSet *curzone;
 
 	int defaultwidth;
 	int defaultheight;
@@ -278,7 +287,7 @@ class LivWindow : public Laxkit::anXWindow
 	int currentmark; //usually 1, but maybe different marks (1 per bit)
 	int viewmarked; //in thumb view and image selection, use a subset of files with this mark mask
 
-	ImageFile *current;
+	ImageSet *current;
 	int current_image_index; //index in current set
 	char *collectionfile;
 	Laxkit::TagCloud tagcloud;
@@ -318,7 +327,7 @@ class LivWindow : public Laxkit::anXWindow
 	Laxkit::DoubleBBox hover_area;
 	char *hover_text;
 
-	int timerid;
+	int slideshow_timer;
 	int slidedelay;//in milliseconds
 
 	Laxkit::PtrStack<ActionBox> *actions;
@@ -335,8 +344,8 @@ class LivWindow : public Laxkit::anXWindow
 	virtual void RefreshNormal();
 	virtual void RefreshThumbs();
 
-	virtual void DrawThumbsRecurseUp  (ImageThumb *thumb, double *m);
-	virtual void DrawThumbsRecurseDown(ImageThumb *thumb, double *m);
+	virtual void DrawThumbsRecurseUp  (ImageSet *thumb, double *m);
+	virtual void DrawThumbsRecurseDown(ImageSet *thumb, double *m);
 
 	 //event dispatching functions
 	LivWindow(anXWindow *parnt,const char *nname,const char *ntitle,unsigned long nstyle,
@@ -367,13 +376,13 @@ class LivWindow : public Laxkit::anXWindow
 	virtual void RotateScreen(int howmuch);
 	virtual void InitActions();
 	virtual int toobig();
-	virtual void setzoom(ImageThumb *which=NULL);
+	virtual void setzoom(ImageSet *which=NULL);
 	virtual void ScaleToFit(ImageFile *img);
 	virtual void Zoom(flatpoint center,double amount);
 	virtual ActionBox *GetAction(int x,int y,unsigned int state, int *boxindex=NULL);
 	virtual ActionBox *GetAction(Laxkit::PtrStack<ActionBox> *alist, int x,int y,unsigned int state, int *boxindex);
 	virtual int SelectImage(int i);
-	virtual ImageThumb * findImageAtCoord(int x,int y, int *index_in_parent);
+	virtual ImageSet *findImageAtCoord(int x,int y, int *index_in_parent);
 	virtual void PositionMiscBoxes();
 	virtual void PositionTagBoxes();
 	virtual void PositionSelectionBoxes();
@@ -382,12 +391,13 @@ class LivWindow : public Laxkit::anXWindow
 	virtual int ToggleMenu();
 	virtual int StartSlideshow();
 
-	virtual int SaveCollection(const char *file, ImageThumb *list);
-	virtual void dump_img(FILE *f, ImageThumb *t, int indent);
+	virtual int SaveCollection(const char *file, ImageSet *list);
 	virtual int LoadCollection(const char *file);
+	virtual void dump_img(FILE *f, ImageSet *t, int indent);
+	virtual int dump_in_img(ImageSet *dest, LaxFiles::Attribute *att, const char *directory);
 
 	virtual int AddDirectory(const char *dir, int as_set, const char *tags);
-	virtual int AddFile(const char *file, const char *tags, ImageThumb *list);
+	virtual int AddFile(const char *file, const char *tags, ImageSet *list, bool recurse);
 	virtual int RemoveFile(int index);
 	virtual int NumFiles(int which=0);
 

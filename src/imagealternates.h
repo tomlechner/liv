@@ -1,5 +1,3 @@
-//
-// $Id$
 //	
 // Laidout, for laying out
 // Please consult http://www.laidout.org about where to send any
@@ -41,6 +39,7 @@ class ImageAlternateSpec : public Laxkit::RefCounted
 class ImageAlternate : public Laxkit::Tagged
 {
   public:
+	unsigned long alternateid;
 	char *filename;
 	int width,height;
 

@@ -1,0 +1,17 @@
+
+
+
+
+SAVEABLE STATE:
+
+bg color
+fg text color
+tag color
+sort order: "day, name"  "caselessName"  "ext"  "filesize"  "date, width"
+slideshow: on/off, delay, effect
+autoplay gifs/movies
+file info to show:
+  filename, dimensions, filesize, file mod time
+tags
+thumbnails: fd, local-fd, memory
+

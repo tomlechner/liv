@@ -15,12 +15,13 @@ LDFLAGS= -L/usr/X11R6/lib -lXi -lXext -lX11 -lm -lpng `imlib2-config --libs` `fr
 DEBUGFLAGS= -g -Wall
 CPPFLAGS= $(DEBUGFLAGS) -I$(LAXDIR)/.. `freetype-config --cflags`
 
+OSCLIBS= -llo
 
 objs= \
 	livwindow.o 
 	
 liv: lax $(objs)
-	g++ liv.cc $(CPPFLAGS) $(LDFLAGS) $(objs) -llaxkit -llo -o $@
+	g++ liv.cc $(CPPFLAGS) $(LDFLAGS) $(objs) -llaxkit -o $@
 
 liv-tuio: lax laxtuio.o $(objs)
 	g++ liv.cc $(CPPFLAGS) $(LDFLAGS) $(objs) -llaxkit -llo laxtuio.o -o $@

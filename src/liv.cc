@@ -1,5 +1,4 @@
 //-------------------------------- liv.cc --------------------------------
-// $Id: liv.cc 635 2012-03-12 00:21:48Z tomlechner $
 // a somewhat simple Laxkit based image viewer
 
 
@@ -16,13 +15,14 @@
  * <pre>
  *
  *  main view:
- *   
+ *
  *  Main Collection    Sets:         Filesystem
  *                     [selected]    [bookmarks]
  *                     [selected2]   [ / ][ home ][opening dir]
  *                     [all files]
  *
- *
+ *  directory preview mode: start with one file, but allow next/prev to adjacent files in containing directory
+ *  openwith
  *  freedesktop thumbnail generation
  *  file move, updating thumbnail location?
  *  finish implement thumb_location: memory|freedesktop|localdir
@@ -33,15 +33,12 @@
  *     set has name, description, creation date, file list
  *     detect from file
  *     should also understand Laidout images list files
- *  drag n drop, understand "file:" 
+ *  drag n drop, understand "file:"
  *  arrange list, and dump out to console or to file
  *  sorting:        taken|format|
  *  		        exif:Flash|none
  *  sort by many:  date,name
- *    by name
  *    by tags
- *    by file date
- *    by size: file size, width, height, area
  *    by exif date taken
  *    by other exif
  *    by format
@@ -90,7 +87,7 @@
 #include <iostream>
 //#include <libexif/exif.h???>
 
-#define DBG 
+#define DBG
 using namespace std;
 using namespace Laxkit;
 using namespace LaxFiles;
@@ -201,7 +198,7 @@ int main(int argc,char **argv)
 				inwindow=1;
 				break;
 
-			case 'b': 
+			case 'b':
 				if (o->arg()[0]=='x' || o->arg()[0]=='#' || (o->arg()[0]=='0' && o->arg()[1]=='x')) {
 					long l=strtol(o->arg()+(o->arg()[0]=='0'?2:1),NULL,16);
 					bgr=(l&0xff0000)>>16;
@@ -243,7 +240,8 @@ int main(int argc,char **argv)
 
 
 	LivWindow *liv=new LivWindow(NULL,"Liv","Liv",
-								 ANXWIN_HOVER_FOCUS,
+								 ANXWIN_ESCAPABLE,
+								 //ANXWIN_HOVER_FOCUS,
 								 //ANXWIN_HOVER_FOCUS|(inwindow?0:ANXWIN_BARE),
 								 //ANXWIN_HOVER_FOCUS|ANXWIN_BARE,
 								 xx,yy, ww,hh, 0,
@@ -273,10 +271,10 @@ int main(int argc,char **argv)
 
 	app.addwindow(liv);
 
-	
 
-	
-	
+
+
+
 	//if (tuio) SetupTUIOListener("3333");
 	app.run();
 

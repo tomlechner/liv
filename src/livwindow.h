@@ -201,6 +201,7 @@ enum LivWindowActions {
 	LIVA_Center,
 	LIVA_NewTag,
 	LIVA_EditTag,
+	LIVA_RemoveTag,
 	LIVA_Select,
 	LIVA_Remove,
 	LIVA_RotateScreen,
@@ -219,6 +220,7 @@ enum LivWindowActions {
 	LIVA_RemapThumbs,
 
 	LIVA_SaveCollection,
+	LIVA_LoadCollection,
 
 	LIVA_Menu,
 	LIVA_Sort_Reverse,
@@ -234,6 +236,7 @@ enum LivWindowActions {
 	LIVA_Verbose,
 	LIVA_Help,
 	LIVA_Quit,
+
 	LIVA_MAX
 };
 
@@ -246,7 +249,7 @@ enum ZoomMode {
 
  //for LivWindow::viewmode
 enum Viewmode {
-	VIEW_Any,
+	VIEW_Any = 0,
 	VIEW_Normal,
 	VIEW_Help,
 	VIEW_Thumbs,
@@ -277,7 +280,7 @@ class LivWindow : public Laxkit::anXWindow
 	 //3 main zones under top:
 	ImageSet top; //contains collection, filesystem, and selection
 	ImageSet collection;
-	ImageSet filesystem; 
+	ImageSet filesystem;
 	ImageSet selection;
 	ImageSet *curzone;
 
@@ -393,6 +396,8 @@ class LivWindow : public Laxkit::anXWindow
 
 	virtual int SaveCollection(const char *file, ImageSet *list);
 	virtual int LoadCollection(const char *file);
+	virtual int SaveSettings(const char *file, int indent=0);
+	virtual int LoadSettings(const char *file);
 	virtual void dump_img(FILE *f, ImageSet *t, int indent);
 	virtual int dump_in_img(ImageSet *dest, LaxFiles::Attribute *att, const char *directory);
 
@@ -403,6 +408,11 @@ class LivWindow : public Laxkit::anXWindow
 
 	virtual void ReverseOrder();
 	virtual int Sort(const char *sortby);
+
+	virtual void dump_out(FILE *f,int indent,int what,LaxFiles::DumpContext *savecontext);
+	virtual LaxFiles::Attribute *dump_out_atts(LaxFiles::Attribute *att,int what,LaxFiles::DumpContext *savecontext);
+	virtual void dump_in_atts(LaxFiles::Attribute *att,int flag,LaxFiles::DumpContext *loadcontext);
+
 };
 
 

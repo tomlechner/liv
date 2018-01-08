@@ -26,7 +26,11 @@
  *  freedesktop thumbnail generation
  *  file move, updating thumbnail location?
  *  finish implement thumb_location: memory|freedesktop|localdir
+ *  zoom scale type: fuzzy, or pixels
  *
+ *  switch to gm, not imlib
+ *  gif play
+ *  refresh thumb view is hideously slow 
  *  autohide mouse after some number of seconds
  *  force rotate
  *  image sets:
@@ -77,6 +81,7 @@
 #include <lax/attributes.h>
 #include <lax/laxoptions.h>
 #include <lax/language.h>
+#include <lax/iconmanager.h>
 
 #include "livwindow.h"
 //#include "laxtuio.h"
@@ -93,7 +98,7 @@ using namespace Laxkit;
 using namespace LaxFiles;
 using namespace Liv;
 
-
+#define ICON_DIRECTORY "/home/tom/other/p/github/laxkit/lax/icons"
 
 
 
@@ -105,7 +110,7 @@ LaxOptions options;
 const char *version()
 {
 	return _("liv, Laxkit Image Viewer, version 0.1\n"
-			 "written about 2010, 2012, and 2016 by Tom Lechner, tomlechner.com");
+			 "written sporadically during 2010, 2012, and 2016-18 by Tom Lechner, tomlechner.com");
 }
 
 //------------------------------ main --------------------------------
@@ -119,6 +124,7 @@ int main(int argc,char **argv)
 	options.Add("real-size", '1', 0, "Initially show all images at 1:1 size");
 	options.Add("recursive", 'r', 0, "Grab images from subdirectories too (unimplemented)");
 	options.Add("bg-color",  'b', 1, "Background color, 0..255 per channel. Or gray, white, black.", 0, "'r,g,b'" );
+	options.Add("checker",   'c', 1, "Use checker patter for background, alternate this color with bg-color" );
 	options.Add("in-window", 'w', 0, "Open in a window, rather than fullscreen");
 	options.Add("sort",      's', 1, "Sort by one of: date,name,pixels,width,height,size,random",    0, "(sorttype)");
 	options.Add("reverse",   'R', 0, "Reverse the order (after any sorting)");
@@ -144,18 +150,22 @@ int main(int argc,char **argv)
 	//system(blah);
 	//---------------------------------
 
+	IconManager *icons = IconManager::GetDefault();
+	icons->AddPath(ICON_DIRECTORY);
+
 	int c,index;
 	int inwindow=0;
-	int onetoone=LIVZOOM_Scale_To_Screen;
+	int zoom = LIVZOOM_Scale_To_Screen;
+	//int zoom = LIVZOOM_As_Is;
 	char *sort=NULL;
 	int reverse=0;
-	//int tuio=0;
 	int verbose=0;
 	int usememorythumbs = LivFlags::LIV_Freedesktop_Thumbs;
 	int recursive=0;
 	int slidedelay=0; //default, in milliseconds
 	int bgr=0, bgg=0, bgb=0; //default background color
 	const char *collection=NULL;
+	//int tuio=0;
 
 	c=options.Parse(argc,argv, &index);
 	if (c==-2) {
@@ -171,7 +181,7 @@ int main(int argc,char **argv)
 	for (o=options.start(); o; o=options.next()) {
 		switch(o->chr()) {
 			case 'h': options.Help(stdout); exit(0);  // Show usage summary, then exit
-			case 'v': cout << version(); exit(0);    // Show version info, then exit
+			case 'v': cout << version() << endl; exit(0);    // Show version info, then exit
 
 			case 'C': collection=o->arg(); break;  //load in a collection
 			case 'V': verbose = 1; break;  //turn on verbosity
@@ -187,7 +197,7 @@ int main(int argc,char **argv)
 					}
 					DBG cerr <<"---slide show with delay: "<<slidedelay<<" ms"<<endl;
 				} break;
-			case '1': onetoone=LIVZOOM_One_To_One; break;
+			case '1': zoom = LIVZOOM_One_To_One; break;
 			case 'r': recursive=1; break;
 			case 'R': reverse=1; break;
 			//case 'T': tuio=1; break;
@@ -245,7 +255,7 @@ int main(int argc,char **argv)
 								 //ANXWIN_HOVER_FOCUS|(inwindow?0:ANXWIN_BARE),
 								 //ANXWIN_HOVER_FOCUS|ANXWIN_BARE,
 								 xx,yy, ww,hh, 0,
-								 onetoone,
+								 zoom,
 								 !inwindow,
 								 slidedelay,
 								 bgr,bgg,bgb,

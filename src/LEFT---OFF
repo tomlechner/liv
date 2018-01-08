@@ -1,10 +1,28 @@
 
 
+generate_preview not generating correctly
+
+lotsa images, select first one, thumb not showing
+
+checkered background
+
+thumbs:
+  zooming gets too large when zoom not hovering over image
+  control wheel for zoom
+  wheel for shift vertically, make sure to not go offscreen
+
+zoom scale type: fuzzy, or pixels
+icons for file dialog
+file dialog competes with window for control on full screen
+
+need rename and batch rename
+
 
 
 SAVEABLE STATE:
 
 bg color
+checker color 2
 fg text color
 tag color
 sort order: "day, name"  "caselessName"  "ext"  "filesize"  "date, width"
@@ -14,4 +32,5 @@ file info to show:
   filename, dimensions, filesize, file mod time
 tags
 thumbnails: fd, local-fd, memory
+mouse timeout
 

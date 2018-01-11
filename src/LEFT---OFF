@@ -1,10 +1,11 @@
 
 
-generate_preview not generating correctly
-
-lotsa images, select first one, thumb not showing
-
 checkered background
+
+selection:
+  control wheel to resize selection bar
+  toggle thumbs of selection and normal view needs to set curzone to selection, and back to collection on normal
+  or-- selection needs remapping, or collection needs remapping to ignore non marked
 
 thumbs:
   zooming gets too large when zoom not hovering over image
@@ -33,4 +34,9 @@ file info to show:
 tags
 thumbnails: fd, local-fd, memory
 mouse timeout
+
+
+
+----------------------- DONE ------------------------
+DONE generate_preview not generating correctly
 

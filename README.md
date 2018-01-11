@@ -11,7 +11,7 @@ ABOUT
 A work in progress... in fact so in progress that it doesn't work yet!
 
 Liv is a very simple Laxkit (https://github.com/Laidout/laxkit)
-based image viewer, approximately in the same spirit
+based image viewer, approximately in the same minimalist spirit
 as feh. Like feh, liv is all about showing images either singly or as a slide show,
 without the horrible interface clutter common in so many image viewers.
 

@@ -335,7 +335,7 @@ class LivWindow : public Laxkit::anXWindow
 	int dirsets; //0 is load dir contents and not keep as a set, 1 load as set
 	int firsttime;
 	int zoommode; //1==scale to screen, 2==scale to screen if bigger, 0==exact size
-	int viewmode, lastmode;
+	Viewmode viewmode, lastmode;
 	int previewsize;
 	int isonetoone;
 	int fullscreen;
@@ -403,7 +403,7 @@ class LivWindow : public Laxkit::anXWindow
 	virtual Laxkit::ShortcutHandler *GetShortcuts();
 	virtual int PerformAction(int action);
 
-	virtual int Mode(int newmode);
+	virtual Viewmode Mode(Viewmode newmode);
 	virtual void RotateScreen(int howmuch);
 	virtual void InitActions();
 	virtual int toobig();

@@ -460,6 +460,7 @@ int ImageSet::Gap(int newgap)
  */
 int ImageSet::Add(ImageSet *thumb, int where)
 {
+	if (FindIndex(thumb)>=0) return 1;
 	return kids.push(thumb, LISTS_DELETE_Refcount, where);
 }
 
@@ -471,13 +472,18 @@ int ImageSet::Remove(int index)
 
 
 /*! Add a child ImageSet that points to the given ImageFile.
+ * return >= 0 for index of newly added, -1 for some kind of error, -2 for already there.
  */
 int ImageSet::Add(ImageFile *img, int where)
 {
+	if (!img) return -1;
+	int i = FindIndex(img);
+	if (i>=0) return -2;
+
 	ImageSet *thumb=new ImageSet(img,0,0);
-	kids.push(thumb, LISTS_DELETE_Refcount, where);
+	i = kids.push(thumb, LISTS_DELETE_Refcount, where);
 	thumb->dec_count();
-	return 0;
+	return i;
 }
 
 //! Set the image ref for *this.
@@ -1155,12 +1161,16 @@ int LivWindow::MapThumbs()
 //! Change view mode.
 /*! Returns old mode.
  */
-int LivWindow::Mode(int newmode)
+Viewmode LivWindow::Mode(Viewmode newmode)
 {
-	int oldmode = viewmode;
+	Viewmode oldmode = viewmode;
 	viewmode = newmode;
 	menuactions.flush();
 	needtodraw=1;
+
+	if (oldmode == VIEW_Thumbs && newmode == VIEW_Normal) {
+		curzone = collection;
+	}
 
 	return oldmode;
 }
@@ -1214,8 +1224,10 @@ void LivWindow::Refresh()
 		else if (viewmode == VIEW_Slideshow) str = "slideshow mode";
 		else if (viewmode==VIEW_Thumbs) str = "thumbs mode";
 		dp->NewFG(win_colors->fg);
-		dp->textout(win_w,0, "debugging:",-1, LAX_RIGHT|LAX_TOP);
-		dp->textout(win_w,dp->textheight(), str,-1, LAX_RIGHT|LAX_TOP);
+		double th = dp->textheight();
+		dp->textout(win_w,2*th, "debugging:",-1, LAX_RIGHT|LAX_TOP);
+		dp->textout(win_w,3*th, str,-1, LAX_RIGHT|LAX_TOP);
+		dp->textout(win_w,4*th, curzone==selection ? "selected" : "collection",-1, LAX_RIGHT|LAX_TOP);
 	}
 	SwapBuffers();
 	pthread_mutex_unlock(&imlib_mutex);
@@ -1840,14 +1852,14 @@ int LivWindow::SaveCollection(const char *file, ImageSet *list)
 		return 1;
 	}
 
-	if (!list) list = collection;
+	if (!list) list = curzone; //collection;
 
 	if (!viewmarked) makestr(collectionfile,file);
 
-	if (list == NULL) {
-		if (viewmarked) list = selection;
-		else list = collection;
-	}
+	//if (list == NULL) {
+	//	if (viewmarked) list = selection;
+	//	else list = collection;
+	//}
 
 	fprintf(f, "#Liv %s\n", LIV_VERSION);
 	char *basedir = lax_dirname(file,0);
@@ -1985,7 +1997,9 @@ ActionBox *LivWindow::GetAction(int x,int y,unsigned int state, int *boxindex)
 				return tagboxes.e[c];
 			}
 		}
+	}
 
+	if (viewmode==VIEW_Normal || viewmode == VIEW_Thumbs) {
 		 //check sel boxes
 		for (int c=0; c<selboxes.n; c++) {
 			if (x>=selboxes.e[c]->minx && x<selboxes.e[c]->maxx
@@ -2173,10 +2187,11 @@ int LivWindow::LBUp(int x,int y,unsigned int state, const LaxMouse *d)
 		if (mousemoved) return 0; //was just dragging
 
 		int index=0;
-		ActionBox *actionbox=GetAction(x,y,state,&index);
-		int action=(actionbox?actionbox->action:LIVA_None);
+		ActionBox *actionbox = GetAction(x,y,state,&index);
+		int action = (actionbox ? actionbox->action : LIVA_None);
+
 		if (action!=LIVA_None) {
-			if (action==LIVA_Menu) {
+			if (action == LIVA_Menu) {
 				if (index==-1) return 0;
 				currentactionbox=NULL;
 				ToggleMenu();
@@ -2192,20 +2207,29 @@ int LivWindow::LBUp(int x,int y,unsigned int state, const LaxMouse *d)
 			}
 
 			const char *sort=NULL;
-			if (action==LIVA_Sort_Date) sort="date";
+			if (action==LIVA_Sort_Date)          sort="date";
 			else if (action==LIVA_Sort_Filesize) sort="size";
-			else if (action==LIVA_Sort_Area) sort="pixels";
-			else if (action==LIVA_Sort_Width) sort="width";
-			else if (action==LIVA_Sort_Height) sort="height";
+			else if (action==LIVA_Sort_Area)     sort="pixels";
+			else if (action==LIVA_Sort_Width)    sort="width";
+			else if (action==LIVA_Sort_Height)   sort="height";
 			else if (action==LIVA_Sort_Filename) sort="name";
 			else if (action==LIVA_Sort_FilenameCaseless) sort="casename";
-			else if (action==LIVA_Sort_Random) sort="random";
-			Sort(sort);
-			currentactionbox=NULL;
-			ToggleMenu();
-			return 0;
+			else if (action==LIVA_Sort_Random)   sort="random";
 
-		} else if (action==LIVA_None && menuactions.n) {
+			if (sort) {
+				Sort(sort);
+				ToggleMenu();
+				currentactionbox=NULL;
+				return 0;
+			}
+
+			if (action == LIVA_Show_All_Selected) {
+				PerformAction(action);
+				currentactionbox=NULL;
+				return 0;
+			}
+
+		} else if (action == LIVA_None && menuactions.n) {
 			currentactionbox=NULL;
 			ToggleMenu();
 			return 0;
@@ -2239,9 +2263,10 @@ int LivWindow::LBUp(int x,int y,unsigned int state, const LaxMouse *d)
 	int index=0;
 	ActionBox *actionbox = GetAction(x,y,state,&index);
 	int action = (actionbox ? actionbox->action : LIVA_None);
+
 	if (action == LIVA_Show_Selected_Image && actionbox->index >= 0) {
 		index = actionbox->index;
-		int i = curzone->FindIndex(selection->kids.e[index]);
+		int i = curzone->FindIndex(selection->kids.e[index]->image);
 		//int i = curzone->FindIndex(selection->kids.e[index]->image);
 		if (i>=0) SelectImage(i);
 		needtodraw=1;
@@ -2435,7 +2460,7 @@ ImageSet *LivWindow::findImageAtCoord(int x,int y, int *index_in_parent)
 
 int LivWindow::MouseMove(int x,int y,unsigned int state, const LaxMouse *d)
 { // ***
-	ActionBox *oldaction=currentactionbox;
+	ActionBox *oldaction = currentactionbox;
 
 	int aindex=0;
 	currentactionbox = GetAction(x,y,state, &aindex);
@@ -2807,21 +2832,29 @@ int LivWindow::PerformAction(int action)
 									   current->image->GetTag(currentactionbox->index)));
 		return 0;
 
-	} else if (action==LIVA_Select) { //add the current image to marked images
+	} else if (action==LIVA_Select) { //toggle selection of current
 		int i=-1;
+		ImageFile *img = NULL;
+
 		if (viewmode==VIEW_Normal) {
 			if (!current) return 0;
-			i=selection->kids.pushnodup(current);
+			img = current->image;
 		} else if (viewmode==VIEW_Thumbs) {
 			if (hover_image<0 || hover_image>=curzone->kids.n) return 0;
-			ImageFile *img=curzone->kids.e[hover_image]->image;
-			i=selection->Add(img);
+			img = curzone->kids.e[hover_image]->image;
 		} else return 0;
 
+		i = selection->FindIndex(img);
+		
 		if (i>=0) {
+			 //was already selected, so remove from selection
 			selection->kids.remove(i);
 			current->image->mark &= ~currentmark;
-		} else current->image->mark |= currentmark;
+		} else {
+			selection->Add(img);
+			current->image->mark |= currentmark;
+		}
+
 		PositionSelectionBoxes();
 		needtomap=2;
 		needtodraw=1;
@@ -2964,16 +2997,25 @@ int LivWindow::PerformAction(int action)
 
 	} else if (action==LIVA_Show_All_Selected) { //limit view to marked images and switch to thumb view
 		 // show the selected zone
-		viewmarked = currentmark;
-		if (viewmode == VIEW_Thumbs) Mode(VIEW_Normal);
-		else Mode(VIEW_Thumbs);
+		//viewmarked = currentmark;
+		if (viewmode == VIEW_Thumbs) {
+			curzone = collection;
+			Mode(VIEW_Normal);
+		} else {
+			selection->Layout(0);
+			curzone = selection;
+			Mode(VIEW_Thumbs);
+		}
 		needtodraw=1;
 		return 0;
 
 	} else if (action==LIVA_ToggleBrowse) {
 		 //toggle normal/thumbnail view mode
-		if (viewmode==VIEW_Normal) Mode(VIEW_Thumbs);
-		else if (viewmode==VIEW_Thumbs) Mode(VIEW_Normal);
+		if (viewmode==VIEW_Normal) {
+			curzone = collection;
+			Mode(VIEW_Thumbs);
+
+		} else if (viewmode==VIEW_Thumbs) Mode(VIEW_Normal);
 		needtodraw=1;
 		return 0;
 
@@ -2992,7 +3034,7 @@ int LivWindow::PerformAction(int action)
 						ANXWIN_REMEMBER,
 						0,0,0,0,0, object_id, "saveas",
 						FILES_SAVE_AS|FILES_ASK_TO_OVERWRITE,
-						viewmarked ? "markedcollection.liv":
+						curzone == selection  ? "selection.liv":
 							collectionfile ? collectionfile : "newcollection.liv"));
 		return 0;
 
@@ -3304,20 +3346,22 @@ void LivWindow::PositionSelectionBoxes()
 	double x,y,w,h;
 
 	if (selection->kids.n==0) {
-		sprintf(str,_("Select"));
-		getextent(str,-1,&w,&h);
+		if (viewmode == VIEW_Normal) {
+			sprintf(str,_("Select"));
+			getextent(str,-1,&w,&h);
 
-		selboxes.push(new ActionBox(str,
-									LIVA_Select,0,
-									1,
-									win_w-w-h, win_w,
-									win_h-2*h,win_h,
-									1));
+			selboxes.push(new ActionBox(str,
+										LIVA_Select,0,
+										1,
+										win_w-w-h, win_w,
+										win_h-2*h,win_h,
+										1));
+		}
 		return;
 	}
 
 	 //select or deselect current button
-	if (current && selection->kids.findindex(current)>=0) sprintf(str,_("Deselect"));
+	if (current && selection->FindIndex(current->image)>=0) sprintf(str,_("Deselect"));
 	else sprintf(str,_("Select"));
 	getextent(str,-1,&w,&h);
 	selboxes.push(new ActionBox(str,

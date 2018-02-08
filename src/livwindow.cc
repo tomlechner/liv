@@ -1168,8 +1168,10 @@ Viewmode LivWindow::Mode(Viewmode newmode)
 	menuactions.flush();
 	needtodraw=1;
 
-	if (oldmode == VIEW_Thumbs && newmode == VIEW_Normal) {
+	if (oldmode == VIEW_Thumbs && newmode == VIEW_Normal && curzone != collection) {
 		curzone = collection;
+		current_image_index = curzone->FindIndex(current->image);
+		current = (current_image_index >= 0 ? curzone->kids.e[current_image_index] : NULL);
 	}
 
 	return oldmode;
@@ -1186,8 +1188,6 @@ int LivWindow::StartSlideshow()
 
 void LivWindow::Refresh()
 {
-	needtodraw=0;
-
 	Displayer *dp=GetDisplayer();
 	dp->MakeCurrent(this);
 	dp->font(app->defaultlaxfont);
@@ -1207,6 +1207,10 @@ void LivWindow::Refresh()
 		//setzoom();
 		firsttime=0;
 	}
+
+	if (!needtodraw) return;
+	needtodraw=0;
+
 
 	//clear window
 	dp->BlendMode(LAXOP_Over);
@@ -1881,7 +1885,7 @@ int LivWindow::LoadCollection(const char *file)
 	char *coldir = lax_dirname(file,0);
 
 	Attribute att;
-	if (att.dump_in(file,NULL)!=0) return 1;
+	if (att.dump_in(file,0)!=0) return 1;
 
 	ImageSet *dest = collection;
 	LivDumpContext context(coldir, thumb_location, true);
@@ -3322,10 +3326,12 @@ int LivWindow::SelectImage(int i)
 
 void LivWindow::PositionMiscBoxes()
 { // ***
+	Displayer *dp=GetDisplayer();
+
 	for (int c=0; c<actions->n; c++) {
 		if (actions->e[c]->action==LIVA_Menu) {
-			int w=getextent(_("Menu"),-1,NULL,NULL);
-			int th=app->defaultlaxfont->textheight();
+			int w = dp->textextent(_("Menu"),-1,NULL,NULL);
+			int th= dp->textheight();
 			actions->e[c]->minx=win_w-(w+th);
 			actions->e[c]->maxx=win_w;
 			actions->e[c]->miny=0;
@@ -3342,13 +3348,13 @@ void LivWindow::PositionSelectionBoxes()
 	currentactionbox=NULL;
 	selboxes.flush();
 
-	char str[100];
+	char str[100]; str[0]='\0';
 	double x,y,w,h;
 
 	if (selection->kids.n==0) {
 		if (viewmode == VIEW_Normal) {
 			sprintf(str,_("Select"));
-			getextent(str,-1,&w,&h);
+			dp->textextent(str,-1,&w,&h);
 
 			selboxes.push(new ActionBox(str,
 										LIVA_Select,0,
@@ -3363,7 +3369,7 @@ void LivWindow::PositionSelectionBoxes()
 	 //select or deselect current button
 	if (current && selection->FindIndex(current->image)>=0) sprintf(str,_("Deselect"));
 	else sprintf(str,_("Select"));
-	getextent(str,-1,&w,&h);
+	dp->textextent(str,-1,&w,&h);
 	selboxes.push(new ActionBox(str,
 								LIVA_Select,0,
 								1,
@@ -3443,9 +3449,9 @@ void LivWindow::PositionTagBoxes()
 
 	if (newtag) {
 		newtag->minx=x;
-		newtag->maxx=x+getextent(newtag->text.c_str(),-1,NULL,NULL);
+		newtag->maxx=x + dp->textextent(newtag->text.c_str(),-1,NULL,NULL);
 		newtag->miny=y;
-		newtag->maxy=y+textheight;
+		newtag->maxy=y + textheight;
 	}
 }
 
